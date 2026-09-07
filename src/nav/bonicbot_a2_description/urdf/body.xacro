@@ -186,11 +186,16 @@
              because both read this file. Fixed here rather than by re-adding
              elbow IDs (4, 11) to isServoInverted(), which would have made RViz
              match by breaking the real arm.
-             Reversing the axis vector alone mirrors the motion while leaving
-             the limits (and so the -0.873..0 command convention that the
-             registry, firmware and robot_app all share) untouched. -->
-        <axis xyz="0 0.9725 0.2328"/>
-        <limit lower="-0.873" upper="0" effort="5.0" velocity="2.0"/>
+             Firmware v2.1 (2026-09-05) re-signed the wire convention from
+             -0.873..0 to 0..0.785 rad (45 deg) - same physical travel, opposite
+             sign for the same bend. Rotation(axis, angle) == Rotation(-axis,
+             -angle), so to keep the physical direction unchanged under the new
+             positive-angle convention the axis is negated a second time here
+             (rather than re-adding a sign flip in esp_hardware_interface.cpp,
+             which forwards joint values to the wire verbatim - see
+             isServoInverted()), and the limit flips to 0..0.785 to match. -->
+        <axis xyz="0 -0.9725 -0.2328"/>
+        <limit lower="0" upper="0.785" effort="5.0" velocity="2.0"/>
         <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
@@ -334,11 +339,16 @@
              because both read this file. Fixed here rather than by re-adding
              elbow IDs (4, 11) to isServoInverted(), which would have made RViz
              match by breaking the real arm.
-             Reversing the axis vector alone mirrors the motion while leaving
-             the limits (and so the -0.873..0 command convention that the
-             registry, firmware and robot_app all share) untouched. -->
-        <axis xyz="0 0.9725 -0.2328"/>
-        <limit lower="-0.873" upper="0" effort="5.0" velocity="2.0"/>
+             Firmware v2.1 (2026-09-05) re-signed the wire convention from
+             -0.873..0 to 0..0.785 rad (45 deg) - same physical travel, opposite
+             sign for the same bend. Rotation(axis, angle) == Rotation(-axis,
+             -angle), so to keep the physical direction unchanged under the new
+             positive-angle convention the axis is negated a second time here
+             (rather than re-adding a sign flip in esp_hardware_interface.cpp,
+             which forwards joint values to the wire verbatim - see
+             isServoInverted()), and the limit flips to 0..0.785 to match. -->
+        <axis xyz="0 -0.9725 0.2328"/>
+        <limit lower="0" upper="0.785" effort="5.0" velocity="2.0"/>
         <dynamics damping="0.5" friction="0.1"/>
     </joint>
 
