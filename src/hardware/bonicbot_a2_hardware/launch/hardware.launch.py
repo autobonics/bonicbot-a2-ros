@@ -76,13 +76,32 @@ def generate_launch_description():
     )
 
     # ── ros2_control ─────────────────────────────────────────────
+    # controllers.yaml hardcodes wheel_radius: 0.06 for diff_cont's own
+    # cmd_vel -> wheel-velocity conversion — a SEPARATE number from the
+    # wheel_radius ros2_control.xacro passes the hardware interface (which
+    # IS per-robot, via $(optenv WHEEL_RADIUS)). If only the xacro side moved,
+    # diff_cont would compute wheel speed against 0.06 while the hardware
+    # interface converts back using the robot's real radius, silently scaling
+    # every drive command by the ratio of the two. Same fix, same source
+    # (bonicOS-robot-app's robot_config.yaml, hardware.wheel_radius) — applied
+    # here as a parameter override loaded AFTER controllers.yaml, so it wins
+    # for this one key and controllers.yaml's default still applies to
+    # everything else. No env var set (no calibration provisioned for this
+    # robot) means no override dict is added at all, so behaviour is
+    # byte-identical to before this existed.
+    controller_manager_params = [
+        {'robot_description': robot_description},
+        os.path.join(pkg_share, 'config', 'controllers.yaml'),
+    ]
+    if 'WHEEL_RADIUS' in os.environ:
+        controller_manager_params.append(
+            {'diff_cont': {'ros__parameters':
+                {'wheel_radius': float(os.environ['WHEEL_RADIUS'])}}})
+
     controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        parameters=[
-            {'robot_description': robot_description},
-            os.path.join(pkg_share, 'config', 'controllers.yaml'),
-        ],
+        parameters=controller_manager_params,
         output='screen',
     )
 

@@ -67,6 +67,43 @@ export MAPS_DIR="$A2_ROS/maps"
 export USE_SIM_TIME=false
 export ROBOT_SERIES=A
 
+# Per-robot hardware calibration lives in bonicOS-robot-app's robot_config.yaml
+# (hardware: encoder_cpr / wheel_radius / camera_vertical_flip), NOT here —
+# a calibration number is a fact about this one physical robot, not about
+# a2-ros's code. Read it and export what ros2_control.xacro's $(optenv...)
+# and hardware.launch.py's controller override are wired to pick up. Missing
+# file, missing block, or missing key all mean the same thing: leave the env
+# var unset and let a2-ros's own defaults apply, exactly as before this
+# existed.
+ROBOT_CFG="$ROBOT_APP/robot_config.yaml"
+if [ -f "$ROBOT_CFG" ]; then
+    HW_JSON=$(python3 -c "
+try:
+    import yaml
+    with open('$ROBOT_CFG') as f:
+        hw = (yaml.safe_load(f) or {}).get('hardware') or {}
+except Exception as e:
+    import sys
+    print(f'# robot_config.yaml hardware block unreadable: {e}', file=sys.stderr)
+    hw = {}
+for k in ('encoder_cpr', 'wheel_radius', 'camera_vertical_flip'):
+    if k in hw and hw[k] is not None:
+        print(f'{k}={hw[k]}')
+")
+    # Errors go to the session log (this script's stdout/stderr are already
+    # redirected there by whatever invokes it), NOT /dev/null — a PyYAML
+    # missing from this python3 must be visible, not indistinguishable from
+    # "no calibration provisioned".
+    while IFS='=' read -r key val; do
+        case "$key" in
+            encoder_cpr)          export ENCODER_CPR="$val" ;;
+            wheel_radius)         export WHEEL_RADIUS="$val" ;;
+            camera_vertical_flip) export CAMERA_VERTICAL_FLIP="$val" ;;
+        esac
+    done <<< "$HW_JSON"
+    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}${CAMERA_VERTICAL_FLIP:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default} CAMERA_VERTICAL_FLIP=${CAMERA_VERTICAL_FLIP:-unset}"
+fi
+
 start() {
     local name="$1"; shift
     echo "starting $name..."
