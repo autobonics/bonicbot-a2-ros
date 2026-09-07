@@ -34,6 +34,7 @@
 #include "rclcpp_lifecycle/state.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
@@ -126,6 +127,7 @@ private:
   // ── Wi-Fi relay (rides the internal node; see file header) ───
   void handleWifiConfig(const uint8_t * payload, uint16_t length);
   void replyWifiStatus();
+  void handleShutdown();
 
   // ── URDF parameters ──────────────────────────────────────────
   std::string serial_port_;
@@ -198,6 +200,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr wifi_credentials_publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr wifi_status_subscription_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_matrix_subscription_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr shutdown_publisher_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr shutdown_request_subscription_;
   rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
   std::thread spin_thread_;
 
@@ -213,6 +217,12 @@ private:
   /// notify (firmware src/uart_ros.cpp), so this is what makes a successful
   /// join — and the new IP — reach the phone on its own.
   std::atomic<bool> wifi_status_push_pending_{false};
+
+  /// Set when robot_app publishes /esp/shutdown_request, so write() sends
+  /// CMD_SHUTDOWN to the ESP. Same push pattern as wifi_status_push_pending_
+  /// and for the same reason: the serial fd belongs to the control thread, so
+  /// a subscription callback may only raise the flag.
+  std::atomic<bool> shutdown_push_pending_{false};
 
   /// Raw CMD_MATRIX_ACTION payload from /face/matrix_action — byte 0 is the
   /// action code, the rest is that action's own layout (spec §4). This is a

@@ -50,6 +50,15 @@ constexpr uint8_t CMD_SERVO_FEEDBACK_REQUEST = 0x2A;
 constexpr uint8_t CMD_WIFI_CONFIG = 0x0B;
 constexpr uint8_t CMD_WIFI_STATUS = 0x0C;
 
+// Graceful power-off, both directions (firmware src/uart_ros.cpp,
+// src/latch_switch.cpp). Inbound: the power button was pressed and the ESP
+// wants the Pi to halt — it retries three times at 1.5 s and hard-cuts the
+// power latch at 25 s whether or not anyone answers, so the RESP_ACK is what
+// buys the filesystem its unmount. Outbound with the latch idle it asks the
+// ESP to run that sequence itself, which is how a shutdown requested from the
+// tablet ends in a real power cut rather than a halted-but-powered robot.
+constexpr uint8_t CMD_SHUTDOWN = 0x06;
+
 // ── Responses (ESP -> host) ────────────────────────────────────────────
 constexpr uint8_t RESP_ACK             = 0x50;
 constexpr uint8_t RESP_NACK            = 0x51;

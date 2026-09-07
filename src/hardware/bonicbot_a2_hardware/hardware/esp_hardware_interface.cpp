@@ -199,6 +199,22 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   wifi_credentials_publisher_ =
     node_->create_publisher<std_msgs::msg::String>("/esp/wifi_credentials", 10);
 
+  // Power button -> robot_app. The ESP hard-cuts the latch 25 s after it asks,
+  // so this must reach a subscriber that can actually halt the machine;
+  // robot_app's PowerManager is that subscriber.
+  shutdown_publisher_ =
+    node_->create_publisher<std_msgs::msg::Empty>("/esp/shutdown", 10);
+
+  // robot_app -> ESP: "run your shutdown sequence and cut power". Needed
+  // because with this stack up robot_app cannot reach /dev/esp itself — the
+  // direct CDC lane it uses when the stack is down is locked out, by design.
+  shutdown_request_subscription_ = node_->create_subscription<std_msgs::msg::Empty>(
+    "/esp/shutdown_request", 10,
+    [this](const std_msgs::msg::Empty::SharedPtr) {
+      // Flag only: the serial fd belongs to the control thread. write() sends it.
+      shutdown_push_pending_ = true;
+    });
+
   wifi_status_subscription_ = node_->create_subscription<std_msgs::msg::String>(
     "/esp/wifi_status", 10,
     [this](const std_msgs::msg::String::SharedPtr msg) {
@@ -318,6 +334,8 @@ void EspHardwareInterface::stopInternalNode()
   battery_publisher_.reset();
   wifi_credentials_publisher_.reset();
   wifi_status_subscription_.reset();
+  shutdown_publisher_.reset();
+  shutdown_request_subscription_.reset();
   face_matrix_subscription_.reset();
   node_.reset();
 }
@@ -553,6 +571,17 @@ hardware_interface::return_type EspHardwareInterface::write(
   // Unprompted Wi-Fi status push — see wifi_status_push_pending_. Same
   // fire-and-forget shape as the matrix action above: only on a fresh publish,
   // never per-cycle.
+  // Outbound shutdown request from robot_app. With the latch idle the ESP
+  // reads this as "start the shutdown sequence", which ends in a real power
+  // cut rather than a halted-but-powered robot.
+  if (shutdown_push_pending_) {
+    shutdown_push_pending_ = false;
+    RCLCPP_WARN(
+      rclcpp::get_logger(kLogger),
+      "robot_app requested shutdown — asking the ESP to cut power");
+    sendPacket(cdc_protocol::CMD_SHUTDOWN, nullptr, 0);
+  }
+
   if (wifi_status_push_pending_) {
     wifi_status_push_pending_ = false;
     replyWifiStatus();
@@ -920,6 +949,10 @@ void EspHardwareInterface::processPacket(
       processBattery(payload, length);
       break;
 
+    case cdc_protocol::CMD_SHUTDOWN:
+      handleShutdown();
+      break;
+
     case cdc_protocol::CMD_WIFI_CONFIG:
       handleWifiConfig(payload, length);
       break;
@@ -1117,6 +1150,29 @@ void EspHardwareInterface::handleWifiConfig(const uint8_t * payload, uint16_t le
   RCLCPP_INFO(
     rclcpp::get_logger(kLogger), "Wi-Fi credentials relayed from phone (ssid=%s)",
     ssid.c_str());
+}
+
+void EspHardwareInterface::handleShutdown()
+{
+  // ACK FIRST. The ESP retries CMD_SHUTDOWN three times at 1.5 s and cuts the
+  // power latch at 25 s regardless (firmware src/latch_switch.cpp), so this
+  // ack is what stops the retries and buys the Pi its unmount window. Sending
+  // it after the publish would still be correct; sending it after anything
+  // that can block would not.
+  sendPacket(cdc_protocol::RESP_ACK, nullptr, 0);
+
+  if (!shutdown_publisher_) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger(kLogger),
+      "CMD_SHUTDOWN arrived but /esp/shutdown has no publisher — the Pi will "
+      "NOT halt and the ESP will cut power in ~25 s");
+    return;
+  }
+
+  RCLCPP_WARN(
+    rclcpp::get_logger(kLogger),
+    "CMD_SHUTDOWN from the ESP (power button) — acked, relaying to robot_app");
+  shutdown_publisher_->publish(std_msgs::msg::Empty());
 }
 
 void EspHardwareInterface::replyWifiStatus()
