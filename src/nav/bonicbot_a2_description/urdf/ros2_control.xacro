@@ -100,7 +100,7 @@
         <param name="serial_port">/dev/esp</param>
         <param name="serial_baud">921600</param>
         <param name="encoder_cpr">$(optenv ENCODER_CPR 14040.0)</param>
-        <param name="wheel_radius">${wheel_radius}</param>   <!-- 0.12m diameter / 2 -->
+        <param name="wheel_radius">$(optenv WHEEL_RADIUS 0.06)</param>   <!-- 0.12m diameter / 2. Per-robot override via bonicOS-robot-app's robot_config.yaml (hardware.wheel_radius -> config.py -> os.environ WHEEL_RADIUS). hardware.launch.py applies the SAME env var to diff_cont's own wheel_radius copy in controllers.yaml — both must move together or drive commands are silently scaled wrong. -->
         <param name="max_velocity">4.5</param>   <!-- ~43 RPM — lowered 2026-08-25, 10.47 (100 RPM) was too fast on real hardware -->
         <param name="motor_accel">0.5</param>   <!-- m/s^2 — lowered 2026-08-25 from the 1.5 default, also too aggressive on real hardware -->
       </hardware>

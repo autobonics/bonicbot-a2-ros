@@ -10,6 +10,8 @@ track name on both robots.
 M1 additionally has `docking_camera` and `depth_camera`; A2 has neither.
 """
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
@@ -60,6 +62,26 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Vertical flip — a real V4L2 control on this sensor (confirmed via
+    # `v4l2-ctl -d /dev/video0 --list-ctrls`: `vertical_flip 0x00980915
+    # (bool)`, separate from `horizontal_flip`), so this costs nothing extra —
+    # the ISP applies it at readout, same as image_size. NOT a software flip
+    # in the image pipeline, which would cost real CPU per frame.
+    #
+    # Per-robot: some units have the camera mounted upside down, some don't.
+    # Source is bonicOS-robot-app's robot_config.yaml (hardware.
+    # camera_vertical_flip -> config.py -> os.environ). Absent/unset (the
+    # common case) means no 'vertical_flip' key is added at all, and the
+    # control keeps its device default (0/false) — same as before this
+    # existed.
+    camera_params = {
+        'video_device': LaunchConfiguration('video_device'),
+        'image_size': [640, 480],
+    }
+    if os.environ.get('CAMERA_VERTICAL_FLIP', '').strip().lower() in \
+            ('1', 'true', 'yes', 'on'):
+        camera_params['vertical_flip'] = True
+
     face_camera = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -67,8 +89,7 @@ def generate_launch_description():
         namespace='face_camera',
         output='screen',
         parameters=[{
-            'video_device': LaunchConfiguration('video_device'),
-            'image_size': [640, 480],
+            **camera_params,
             # Frame rate is NOT set here — see set_frame_rate above. This node
             # has no parameter for it and silently ignored the one that used
             # to be in this block.
