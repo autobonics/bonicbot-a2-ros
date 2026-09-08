@@ -1,0 +1,563 @@
+amcl:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "base_link"
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 1000  # Reduced from 2000 for RPi
+    min_particles: 200   # Reduced from 500 for RPi
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: scan
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odometry/filtered
+    bt_loop_duration: 50  # Changed from 10 to 50ms (20Hz instead of 100Hz) - KEY CHANGE
+    # MILLISECONDS, not seconds. This is how long the behaviour tree waits for
+    # another node (planner/controller/behavior server) to acknowledge an action
+    # goal or service request before declaring it failed.
+    #
+    # 20 ms is nav2's stock default, tuned for a workstation. A full handshake
+    # here — serialise, DDS transport, target executor wakes, accepts goal, ack
+    # back, BT executor wakes — takes 50-300 ms on a loaded RPi4, so it failed
+    # constantly. The failure mode is worse than "slow": when the ack times out
+    # the BT assumes the action never started and moves to the NEXT recovery,
+    # but the target node received it and runs it anyway. Observed 2026-08-27:
+    # backup, spin and wait all starting within 0.6 ms of each other, backup
+    # then failing because spin was rotating the robot underneath it.
+    #
+    # Raised to 600 ms. Only cost is that a genuinely dead server takes 600 ms
+    # instead of 20 ms to detect — irrelevant beside the 5 s wait recovery.
+    default_server_timeout: 600
+    
+    plugin_lib_names:
+    - nav2_compute_path_to_pose_action_bt_node
+    - nav2_compute_path_through_poses_action_bt_node
+    - nav2_smooth_path_action_bt_node
+    - nav2_follow_path_action_bt_node
+    - nav2_spin_action_bt_node
+    - nav2_wait_action_bt_node
+    - nav2_assisted_teleop_action_bt_node
+    - nav2_back_up_action_bt_node
+    - nav2_drive_on_heading_bt_node
+    - nav2_clear_costmap_service_bt_node
+    - nav2_is_stuck_condition_bt_node
+    - nav2_goal_reached_condition_bt_node
+    - nav2_goal_updated_condition_bt_node
+    - nav2_globally_updated_goal_condition_bt_node
+    - nav2_is_path_valid_condition_bt_node
+    - nav2_initial_pose_received_condition_bt_node
+    - nav2_reinitialize_global_localization_service_bt_node
+    - nav2_rate_controller_bt_node
+    - nav2_distance_controller_bt_node
+    - nav2_speed_controller_bt_node
+    - nav2_truncate_path_action_bt_node
+    - nav2_truncate_path_local_action_bt_node
+    - nav2_goal_updater_node_bt_node
+    - nav2_recovery_node_bt_node
+    - nav2_pipeline_sequence_bt_node
+    - nav2_round_robin_node_bt_node
+    - nav2_transform_available_condition_bt_node
+    - nav2_time_expired_condition_bt_node
+    - nav2_path_expiring_timer_condition
+    - nav2_distance_traveled_condition_bt_node
+    - nav2_single_trigger_bt_node
+    - nav2_goal_updated_controller_bt_node
+    - nav2_is_battery_low_condition_bt_node
+    - nav2_navigate_through_poses_action_bt_node
+    - nav2_navigate_to_pose_action_bt_node
+    - nav2_remove_passed_goals_action_bt_node
+    - nav2_planner_selector_bt_node
+    - nav2_controller_selector_bt_node
+    - nav2_goal_checker_selector_bt_node
+    - nav2_controller_cancel_bt_node
+    - nav2_path_longer_on_approach_bt_node
+    - nav2_wait_cancel_bt_node
+    - nav2_spin_cancel_bt_node
+    - nav2_back_up_cancel_bt_node
+    - nav2_assisted_teleop_cancel_bt_node
+    - nav2_drive_on_heading_cancel_bt_node
+
+bt_navigator_navigate_through_poses_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+
+controller_server:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    controller_frequency: 10.0  # Reduced from 20.0 for RPi - KEY CHANGE
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    # 0.3 -> 1.0. This is how long FollowPath may keep failing before the server
+    # aborts the goal. map->odom freezes of 0.6 s were exceeding it and killing
+    # otherwise-healthy navigation; 1.0 rides through them.
+    failure_tolerance: 1.0
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"] 
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      # REVERTED to SimpleProgressChecker on 2026-08-27. It was swapped for
+      # PoseProgressChecker (d736f9c) on the theory that the robot was being
+      # punished for purposefully turning to face its path near a wall. Field
+      # testing disproved that: the robot was OSCILLATING, not turning, and the
+      # abort was the only thing rescuing it.
+      #
+      # Why Pose made it worse: it counts rotation as progress, so a robot
+      # rocking in place keeps PASSING the check. It never aborts, so recovery
+      # never runs, so nothing physically shoves the robot out of the stuck
+      # spot. Meanwhile the Oscillation critic keeps banning directions until
+      # nothing is left. A narrow passage that used to traverse fine became an
+      # almost-certain lockup.
+      #
+      # Simple's abort IS the escape hatch. Keep it. The dithering itself is
+      # addressed by oscillation_reset_time in FollowPath below.
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # Relaxed 2026-08-25 from 0.5 m / 10.0 s. That pair demanded 0.05 m/s
+      # sustained, which was 10% of the old max_vel_x (0.50) but 23% of the
+      # current 0.22 — calibrated for a robot twice as fast.
+      required_movement_radius: 0.25
+      movement_time_allowance: 15.0
+
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # Relaxed 2026-08-25 from 0.10 alongside yaw_goal_tolerance below, for the
+      # same reason: the base now accelerates at 0.5 m/s^2 instead of 2.5, so it
+      # coasts into the goal more slowly and a tight window is easy to overshoot
+      # and then hunt around. 15cm matches what nav2_params_sim.yaml already uses.
+      xy_goal_tolerance: 0.15
+      # Relaxed 2026-08-25 from 0.09 (5.2 deg). The robot was physically arriving
+      # at the goal but the checker never fired, so it replanned forever. 0.09 was
+      # chosen when acc_lim_theta was 3.2; it is now 2.0 to match what the base can
+      # actually do, which means the robot settles into the goal heading more slowly
+      # and needs more margin. 0.20 rad = 11.5 deg. nav2_params_sim.yaml independently
+      # arrived at 0.15 for the same reason.
+      yaw_goal_tolerance: 0.20
+    FollowPath:
+      # ── RegulatedPurePursuitController, replacing DWB (2026-08-27) ──────
+      #
+      # Switched on evidence, not preference. DWB's /evaluation output during
+      # a near-wall stall showed the robot sitting EXACTLY on the path
+      # (PathDist raw = 0) but pointed the wrong way, with standing still
+      # scoring better than driving:
+      #
+      #     critic         still    forward     delta
+      #     GoalAlign      18.00     20.40      +2.40
+      #     PathDist        0.00      1.60      +1.60
+      #     BaseObstacle    3.46      4.68      +1.22
+      #     GoalDist       21.00     20.40      -0.60
+      #     TOTAL          46.46     51.08      +4.62
+      #
+      # Three critics penalise forward motion and only one rewards it. Zeroing
+      # GoalAlign still leaves forward worse by 2.22, and raising GoalDist does
+      # not help because GoalAlign's raw worsens four times faster than
+      # GoalDist improves. It is a local minimum in the scoring, not a bad
+      # weight, so no ratio of DWB critics fixes it.
+      #
+      # RPP has no critics and no voting. It picks a lookahead point on the
+      # path and steers to it geometrically, so ties and local minima of this
+      # kind cannot arise. It also samples nothing — DWB scored 128
+      # trajectories at 10 Hz — which matters on an RPi4 that logs "Control
+      # loop missed its desired rate" continuously.
+      #
+      # git revert restores DWB if this proves worse.
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+
+      desired_linear_vel: 0.22          # = max_vel_x; hardware clamps at 0.27
+      max_angular_accel: 2.0            # matches the old acc_lim_theta
+
+      # Lookahead: how far along the path RPP aims. Scaled down from nav2's
+      # 0.6 m default because this robot is small (0.44 m) and slow (0.22 m/s);
+      # too long and it cuts corners, too short and it wobbles.
+      # Velocity-scaled lookahead, enabled 2026-08-27. Pure pursuit steers at a
+      # point lookahead_dist ahead on the path, so it ALWAYS cuts inside a
+      # curve — inherent to the algorithm. Entering a narrow passage from open
+      # space, it cut toward the inner wall and arrived with no clearance left,
+      # after which forward, reverse AND rotation were all blocked
+      # ("detected collision ahead" at 10 Hz, plus behavior_server refusing
+      # both spin and backup).
+      #
+      # Tying lookahead to speed fixes it at the mechanism: with
+      # use_regulated_linear_velocity_scaling already on, the robot slows for
+      # tight curves, so the lookahead now shrinks in exactly the places
+      # corner-cutting hurts.
+      #
+      #   lookahead = velocity * lookahead_time, clamped to [min, max]
+      #   0.22 m/s straight  -> 0.33 m, smooth
+      #   0.08 m/s on a curve -> clamps to 0.20 m, hugs the path
+      #
+      # lookahead_dist remains as the fallback when scaling is disabled.
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.5
+      use_velocity_scaled_lookahead_dist: true
+      lookahead_time: 1.5
+
+      # THE FIX for the stall above. When the path heading differs by more than
+      # rotate_to_heading_min_angle, RPP rotates in place FIRST and only then
+      # drives. That is precisely the manoeuvre DWB could never commit to — it
+      # is explicit behaviour here rather than an emergent score.
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785        # 45 deg
+      rotate_to_heading_angular_vel: 0.8        # over the 0.10 rad/s deadband,
+                                                # under max_vel_theta 1.0
+
+      # Every one of these must stay ABOVE the measured hardware deadband
+      # (0.03 m/s linear), or RPP commands a speed the base cannot execute and
+      # the robot silently stalls — the failure mode that cost us hours.
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.5
+
+      # Slow down on tight curves. min_speed is the floor it may slow to and is
+      # deliberately well clear of the 0.03 deadband.
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.08
+
+      # Cost-based slowdown left OFF: it scales speed by proximity to
+      # obstacles, and near a wall that can drive the command under the
+      # deadband and stall the robot outright.
+      use_cost_regulated_linear_velocity_scaling: false
+
+      # 1.0 -> 0.5 (2026-08-27). RPP projects the footprint forward along the
+      # arc for this many seconds and refuses to move if it hits anything. At
+      # 0.22 m/s, 1.0 s swept a 0.22 m radius circle through 0.22 m of path —
+      # in a narrow passage that clips the walls, and the log filled with
+      # "RegulatedPurePursuitController detected collision ahead!" at 10 Hz
+      # until failure_tolerance expired with "Controller patience exceeded".
+      # The robot was not in collision; the projection was.
+      #
+      # 0.5 s halves the swept distance to 0.11 m, which still catches a real
+      # obstacle at this speed while fitting through gaps the robot can
+      # physically pass. If narrow passages still fail, the next lever is
+      # lookahead_dist (0.4 -> 0.3): a shorter carrot keeps the arc tighter to
+      # the path instead of aiming past a bend into the wall.
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 0.5
+
+      allow_reversing: false            # differential drive, no rear sensing
+      use_interpolation: true
+      max_robot_pose_search_dist: 10.0
+
+      # 0.5 as with DWB: map->odom staleness reached 0.62 s on this hardware.
+      transform_tolerance: 0.5
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 3.0  # Reduced from 5.0 for RPi
+      publish_frequency: 1.0  # Reduced from 2.0 for RPi
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: False  # Changed for real robot
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      # LOCAL costmap only — global still uses robot_radius.
+      #
+      # robot_radius describes a CIRCLE, so 0.22 told nav2 the robot is 0.44 m
+      # across in every direction. It is not: 0.228 m long (chassis_length) by
+      # 0.345 m wide (wheel span, wheel_offset_y 0.14475 + wheel_thickness/2).
+      # 0.22 is the CIRCUMSCRIBED radius applied even lengthwise, where the true
+      # half-extent is 0.114.
+      #
+      # The cost of that: every cell within 0.22 m of an obstacle is marked
+      # INSCRIBED_INFLATED_OBSTACLE (253), and DWB's BaseObstacle critic throws
+      # out any trajectory touching one. Every trajectory starts at the robot's
+      # current pose, so once the centre drifts inside that band ALL 236 are
+      # rejected before they begin — observed on hardware 2026-08-27 as
+      # "No valid trajectories out of 236! 1.00: BaseObstacle/Trajectory Hits
+      # Obstacle", reliably near walls and never in open space.
+      #
+      # The real polygon drops the inscribed radius to 0.114, roughly halving
+      # how close the robot may legitimately approach a wall.
+      #
+      # TRADE-OFF: BaseObstacle samples trajectory CENTRE points and relies on
+      # the inscribed radius for margin. With a smaller one there is less slack,
+      # so corner-clipping while turning becomes possible. The proper mitigation
+      # is the ObstacleFootprint critic (full-polygon checking), deliberately not
+      # added here because it costs CPU this RPi4 does not currently have.
+      # Back to a circle at 0.24, replacing the measured footprint polygon.
+      # The polygon gave an inscribed radius of 0.114 m, which let near-wall
+      # goals work but allowed the corners to clip, because BaseObstacle only
+      # checks trajectory CENTRE points and never the robot's orientation.
+      # 0.24 is just over the true circumscribed radius (0.207 m), so the whole
+      # robot is covered whatever way it is pointing — clipping cannot happen
+      # geometrically, without needing the ObstacleFootprint critic and its CPU.
+      # Slightly more conservative than the original 0.22.
+      # LOCAL costmap only — global keeps robot_radius 0.22 for conservative
+      # planning. Restored to the measured polygon 2026-08-27, AFTER the switch
+      # to RPP, which changes the trade-off entirely.
+      #
+      # The polygon was dropped for a circle because the robot's edges struck
+      # walls. That was correct under DWB: its BaseObstacle critic samples only
+      # the trajectory's CENTRE point and never the robot's orientation, so a
+      # 0.114 m inscribed radius let the 0.1723 m half-width clip. RPP does not
+      # work that way — it calls footprintCostAtPose(x, y, theta, footprint),
+      # full polygon collision checking, orientation-aware, every cycle. So do
+      # the behavior_server recoveries. The reason for the circle is gone.
+      #
+      # Why it matters here: robot_radius 0.22 makes the lethal band 0.22 m, so
+      # a corridor must exceed 0.44 m for the robot's CENTRE to have any legal
+      # position — while the robot is physically 0.345 m wide. Corridors between
+      # roughly 0.35 and 0.44 m fit the robot but were declared impassable.
+      # Observed as RPP logging "detected collision ahead" at 10 Hz in a narrow
+      # passage, and behavior_server refusing even to spin in place — which for
+      # a circular footprint can only mean the robot was already inside the
+      # lethal band.
+      #
+      # 0.114 x 0.1723 half-extents: chassis_length 0.228, and wheel span
+      # (wheel_offset_y 0.14475 + wheel_thickness/2 0.0275), the wheels being
+      # the widest point rather than the body.
+      footprint: "[[0.114, 0.1723], [0.114, -0.1723], [-0.114, -0.1723], [-0.114, 0.1723]]"
+      plugins: ["voxel_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        # RESTORED to 0.55 on 2026-08-27. It was cut to 0.30 on the theory that a
+        # wide halo was what blocked narrow passages — that diagnosis was WRONG.
+        # The narrow-path failures turned out to be RViz publishing goals in the
+        # `odom` frame (main.rviz Fixed Frame), which aged out of the 10 s tf2
+        # buffer. Fixing the frame fixed the passages; the inflation cut fixed
+        # nothing and cost real obstacle avoidance.
+        #
+        # Why it hurt: the band between robot_radius (0.22) and inflation_radius
+        # is the GRADIENT that pushes the robot off walls — not a hard limit, a
+        # preference. At 0.30 that band was only 8 cm wide and, with
+        # cost_scaling_factor 3.0, decayed to nothing almost immediately. The
+        # local costmap is what DWB scores against, so the controller was left
+        # effectively blind to obstacle proximity: clipped corners, wall-brushing
+        # and extra recoveries.
+        #
+        # Compounding it, BaseObstacle.scale is 0.02 against PathAlign/PathDist
+        # at 32.0 — obstacle cost is already weighted ~1500x lower than path
+        # following. Narrowing the inflation removed what little signal was left.
+        # If active obstacle avoidance is wanted, BaseObstacle.scale is the real
+        # lever; change it deliberately and on its own.
+        # 0.55 -> 0.45. The lethal band is set by robot_radius (0.24), so this
+        # only controls the soft gradient above it — now a 0.21 m band. Lowering
+        # it lets the controller commit to gaps that the wider halo made costly.
+        inflation_radius: 0.45
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True
+        publish_voxel_map: True
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 2.0
+        mark_threshold: 0
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 0.5  # Reduced from 1.0 for RPi - KEY CHANGE
+      publish_frequency: 0.5  # Reduced from 1.0 for RPi
+      global_frame: map
+      robot_base_frame: base_link
+      use_sim_time: False  # Changed for real robot
+      robot_radius: 0.22
+      resolution: 0.05
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # GLOBAL costmap only — this pair biases PLANNED PATHS toward the middle
+        # of open space. The local costmap is deliberately left alone, because
+        # that is what governs whether the controller can commit to a narrow gap.
+        #
+        # Neither value can make a passage impassable. Only cells within
+        # robot_radius (0.22) are lethal; everything out to inflation_radius is
+        # merely expensive, so a narrow corridor stays traversable — it is still
+        # the cheapest route when it is the only route.
+        #
+        # cost = 252 * exp(-cost_scaling_factor * distance_past_robot_radius)
+        #
+        # cost_scaling_factor is a DECAY RATE, so LOWER pushes the robot FURTHER
+        # from walls. At 3.0 the cost collapsed almost immediately (56 at 50 cm
+        # past the radius), making "40 cm from a wall" and "80 cm from a wall"
+        # look equally acceptable to the planner. At 2.0 the gradient survives
+        # far enough out to actually express a preference for open space.
+        #
+        # inflation_radius sets how FAR the gradient reaches; cost_scaling_factor
+        # sets how STEEP it is. A wide radius with a steep factor is still flat
+        # where it matters, so both move together or neither does.
+        cost_scaling_factor: 2.0
+        # 0.70 -> 0.80: push planned paths a little further toward open space.
+        inflation_radius: 0.80
+      always_send_full_costmap: True
+
+map_server:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    yaml_filename: ""
+
+map_saver:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0  # Reduced from 20.0 for RPi - KEY CHANGE
+    use_sim_time: False  # Changed for real robot
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true #false ----------------------------------- //new update Dijkstra to A algorithm faster now but only downside of A* is in not good in very complex maze-like environments with many dead-ends
+      allow_unknown: true
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors/Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors/AssistedTeleop"
+    global_frame: odom
+    robot_base_frame: base_link
+    # 0.1 -> 0.3. behavior_server had the tightest budget of any node, so the
+    # recovery behaviours failed for the same reason the controller did — which
+    # is why the robot spun and stopped instead of recovering.
+    transform_tolerance: 0.3
+    use_sim_time: False  # Changed for real robot
+    # 2.0 -> 1.0. behavior_server projects a recovery motion this far ahead
+    # and refuses to run it if the footprint hits anything. Wedged in a narrow
+    # passage that always found a wall, so spin and backup — the behaviours
+    # whose whole purpose is to un-wedge the robot — both aborted instantly
+    # with "Collision Ahead", one of them 1 ms after starting. A shorter
+    # projection lets them actually execute in the tight spots they exist for,
+    # while still checking a full second of motion.
+    simulate_ahead_time: 1.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    # Lowered from 3.2 to match the controller. Recovery spins were the most
+    # violent motion on the robot because this path bypasses FollowPath's limits.
+    rotational_acc_lim: 2.0
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: False  # Changed for real robot
+    smoothing_frequency: 10.0  # Reduced from 20.0 for RPi
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    # Must match FollowPath's limits above — a smoother that permits more than
+    # the planner does just re-introduces the clamp it exists to avoid.
+    max_velocity: [0.22, 0.0, 1.0]
+    min_velocity: [-0.22, 0.0, -1.0]
+    max_accel: [0.5, 0.0, 2.0]
+    max_decel: [-0.5, 0.0, -2.0]
+    odom_topic: "/odometry/filtered"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

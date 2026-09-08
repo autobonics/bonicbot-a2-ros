@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" >
+
+    <joint name="face_camera_joint" type="fixed">
+        <parent link="head"/>
+        <child link="face_camera_link"/>
+        <origin xyz="0.085 0 0.033" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Prevent URDF→SDF fixed-joint reduction from lumping face_camera_link
+         into the neck link. Without this, the camera sensor's world pose
+         gets baked at spawn time and never updates when the robot moves,
+         producing a frozen / gray-fill image.  (SDFormat 12 / gz-sim Fortress) -->
+    <gazebo reference="face_camera_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <link name="face_camera_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+            <geometry>
+                <cylinder radius="0.005" length="0.005"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+            <geometry>
+                <cylinder radius="0.005" length="0.005"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="0.02" length="0.005" radius="0.005">
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+
+    <joint name="face_camera_optical_joint" type="fixed">
+        <parent link="face_camera_link"/>
+        <child link="face_camera_link_optical"/>
+        <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <!-- Preserve optical frame through URDF→SDF conversion -->
+    <gazebo reference="face_camera_optical_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <link name="face_camera_link_optical"></link>
+
+
+
+    <gazebo reference="face_camera_link">
+        <material>Gazebo/Black</material>
+
+        <sensor name="face_camera" type="camera">
+            <pose> 0 0 0 0 0 0 </pose>
+            <visualize>true</visualize>
+            <update_rate>20</update_rate>
+            <camera>
+                <horizontal_fov>1.089</horizontal_fov>
+                <image>
+                    <format>R8G8B8</format>
+                    <width>640</width>
+                    <height>480</height>
+                </image>
+                <clip>
+                    <near>0.05</near>
+                    <far>8.0</far>
+                </clip>
+            </camera>
+            <topic>/face_camera/image_raw</topic>
+            <gz_frame_id>face_camera_link_optical</gz_frame_id>
+        </sensor>
+    </gazebo>
+
+</robot>

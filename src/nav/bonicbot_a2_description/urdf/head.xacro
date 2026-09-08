@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- All properties are now defined in robot_core.xacro -->
+
+
+    <!-- HEAD ASSEMBLY -->
+    
+    <!-- Neck Yaw Joint (servo for left-right rotation) -->
+    <joint name="neck_yaw_joint" type="revolute">
+        <parent link="body"/>
+        <child link="neck"/>
+        <!-- Position at top center of body -->
+        <origin xyz="0 0 ${body_height}" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="${-pi/2}" upper="${pi/2}" effort="10.0" velocity="0.5"/>
+        <dynamics damping="0.5" friction="0.1"/>
+    </joint>
+
+    <!-- Neck Link -->
+    <link name="neck">
+        <visual>
+            <origin xyz="0 0 ${neck_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${neck_radius}" length="${neck_length}"/>
+            </geometry>
+            <material name="dark_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 ${neck_length/2}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="${neck_radius}" length="${neck_length}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="${neck_mass}" length="${neck_length}" radius="${neck_radius}">
+            <origin xyz="0 0 ${neck_length/2}" rpy="0 0 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="neck">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <!-- Head Joint (fixed to neck) -->
+    <joint name="head_joint" type="fixed">
+        <parent link="neck"/>
+        <child link="head"/>
+        <origin xyz="0 0 ${neck_length + head_radius}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Head Link -->
+    <link name="head">
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="${head_radius}"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_sphere mass="${head_mass}" radius="${head_radius}">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:inertial_sphere>
+    </link>
+
+    <gazebo reference="head">
+        <material>Gazebo/Red</material>
+    </gazebo>
+
+    <!-- Visual-only colored mesh attached to head (converted from head.glb) -->
+    <joint name="external_head_mesh_joint" type="fixed">
+        <parent link="head"/>
+        <child link="external_head_mesh_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="external_head_mesh_link">
+        <visual>
+            <origin xyz="-0.001 0 -0.1225" rpy="0 0 1.5708"/>
+            <geometry>
+                <mesh filename="package://bonicbot_a2_description/meshes/head.obj"/>
+            </geometry>
+        </visual>
+    </link> 
+
+</robot>

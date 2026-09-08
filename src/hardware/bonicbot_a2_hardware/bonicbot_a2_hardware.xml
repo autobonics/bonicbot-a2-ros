@@ -1,0 +1,12 @@
+<library path="bonicbot_a2_hardware">
+  <class name="bonicbot_a2_hardware/EspHardwareInterface"
+         type="bonicbot_a2_hardware::EspHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      BonicBot A2 ros2_control system interface. Drives the ESP32-S3 over
+      USB CDC-ACM (binary framing 0xAA 0x55 | type | length(2B LE) | payload):
+      differential-drive wheels via CMD_MOTOR_MOVE, seven serial servos via
+      CMD_SERVO_MULTI, plus IMU, encoder, battery and Wi-Fi-relay traffic.
+    </description>
+  </class>
+</library>

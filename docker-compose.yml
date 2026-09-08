@@ -1,0 +1,80 @@
+# BonicBot A2 Pro — two containers.
+#
+# M1 runs three (hardware_drivers + robot_nav + robot_app); A2 folds hardware
+# and nav into one image because the RPi4 cannot spare the overhead of a second.
+#
+# robot_app is the SAME image M1 uses — series behaviour is selected by
+# ROBOT_SERIES, and its A-series config already exists upstream.
+
+services:
+
+  bonicbot_ros:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros
+    image: autobonics/bonicbot-a2-ros:latest
+    container_name: bonicbot_ros
+    restart: always
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/esp        # ESP32-S3 USB CDC — wheels, servos, IMU, battery, Wi-Fi relay
+      - /dev/lidar      # RPLIDAR C1M1
+      - /dev/video0     # CSI camera
+    volumes:
+      - /home/pi/maps:/maps
+    environment:
+      # ROS2 traffic must never leak onto school/lab WiFi.
+      - ROS_LOCALHOST_ONLY=1
+      - ROS_DOMAIN_ID=0
+      - BONICBOT_MAPS_DIR=/maps
+    command: >
+      ros2 launch bonicbot_a2_hardware hardware.launch.py
+
+  bonicbot_nav:
+    # Same image, second entrypoint — nav is a separate process, not a separate
+    # build. Keeping it a distinct service means Nav2 can be restarted (or run
+    # in slam mode) without cycling the hardware link.
+    image: autobonics/bonicbot-a2-ros:latest
+    container_name: bonicbot_nav
+    restart: always
+    network_mode: host
+    depends_on:
+      bonicbot_ros:
+        condition: service_started
+    volumes:
+      - /home/pi/maps:/maps
+    environment:
+      - ROS_LOCALHOST_ONLY=1
+      - ROS_DOMAIN_ID=0
+      - BONICBOT_MAPS_DIR=/maps
+    command: >
+      ros2 launch bonicbot_a2_nav bringup.launch.py use_sim_time:=false slam:=false
+
+  robot_app:
+    image: autobonics/robot-app:latest
+    container_name: robot_app
+    restart: always
+    network_mode: host
+    mem_limit: 384m
+    depends_on:
+      bonicbot_ros:
+        condition: service_started
+    environment:
+      - ROBOT_SERIES=A
+      - ROS_DISTRO=humble
+      - ROBOT_ID=${ROBOT_ID}
+      - ROS_LOCALHOST_ONLY=1
+    secrets:
+      - firebase_credentials
+      - livekit_api_key
+    volumes:
+      - /home/pi/maps:/maps
+      # Update manager restarts these containers from inside one of them.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+secrets:
+  firebase_credentials:
+    file: /home/pi/secrets/firebase.json
+  livekit_api_key:
+    file: /home/pi/secrets/livekit.json

@@ -1,0 +1,23 @@
+# BonicBot A2 — stable device names.
+#
+# Install with scripts/setup_udev.sh (or copy to /etc/udev/rules.d/ manually).
+#
+# A2 has ONE ESP32-S3 board, so a plain vendor/product match is unambiguous.
+# (M1 carries three boards sharing 303a:1001 and has to disambiguate by serial.)
+#
+# Find your IDs:
+#   udevadm info /dev/ttyACM0 | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL"
+
+# ESP32-S3 mainboard — USB CDC-ACM. Wheels, servos, IMU, battery, Wi-Fi relay.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="esp", GROUP="dialout", MODE="0660"
+
+# RPLIDAR C1M1 — USB-serial adapter. Fill in the IDs for your unit; CP210x
+# (10c4:ea60) and CH340 (1a86:7523) are the usual ones.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="lidar", GROUP="dialout", MODE="0660"
+
+# CSI camera needs no rule — it enumerates as /dev/video0 via bcm2835-unicam.
+# NOTE: Camera Module 3 (IMX708) is libcamera-only and will NOT appear as a
+# v4l2 capture device; v4l2_camera works with Camera Module 2 (IMX219).
+
+# Apply:
+#   sudo udevadm control --reload-rules && sudo udevadm trigger

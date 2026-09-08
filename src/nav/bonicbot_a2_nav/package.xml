@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bonicbot_a2_nav</name>
+  <version>1.0.0</version>
+  <description>
+    BonicBot A2 navigation and perception — SLAM, Nav2, EKF, joystick teleop
+    and the vision pipeline. No hardware access: communicates with
+    bonicbot_a2_hardware over ROS2 topics only.
+  </description>
+  <maintainer email="autobonics@gmail.com">Autobonics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- navigation / localization stack -->
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>bonicbot_a2_description</exec_depend>
+  <!-- base.launch.py composes hardware.launch.py with this package's
+       bringup.launch.py so robot_app can start the whole base stack as ONE
+       launch. A launch-file include, not a code dependency — the hardware/nav
+       source split in CLAUDE.md is unaffected. -->
+  <exec_depend>bonicbot_a2_hardware</exec_depend>
+
+  <!-- teleop -->
+  <exec_depend>joy</exec_depend>
+  <exec_depend>teleop_twist_joy</exec_depend>
+
+  <!-- vision_pipeline.py / object_follower.py -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

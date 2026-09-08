@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bonicbot_a2_sim</name>
+  <version>1.0.0</version>
+  <description>
+    BonicBot A2 Gazebo simulation — development only, never runs on the robot.
+    Sim-side replacement for bonicbot_a2_hardware: same controllers.yaml, same
+    EKF and teleop, with gz_ros2_control standing in for the ESP32 link.
+    SLAM / Nav2 launch separately from bonicbot_a2_nav with use_sim_time:=true.
+  </description>
+  <maintainer email="autobonics@gmail.com">Autobonics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_image</exec_depend>
+  <exec_depend>gz_ros2_control</exec_depend>
+
+  <exec_depend>bonicbot_a2_description</exec_depend>
+  <exec_depend>bonicbot_a2_hardware</exec_depend>
+  <exec_depend>bonicbot_a2_nav</exec_depend>
+
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

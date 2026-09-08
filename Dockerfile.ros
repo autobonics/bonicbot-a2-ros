@@ -1,0 +1,67 @@
+# BonicBot A2 — bonicbot_ros image.
+#
+# Unlike M1, which splits hardware and nav into two containers, A2 bundles both
+# into this single image: the RPi4 does not have the headroom to justify a
+# second container's overhead. The src/hardware vs src/nav separation is still
+# enforced at the source level (they only ever talk over ROS2 topics).
+#
+# The sim package is deliberately NOT built here — Gazebo never runs on the robot.
+
+FROM ros:humble-ros-base
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-ros2-control \
+      ros-humble-ros2-controllers \
+      ros-humble-controller-manager \
+      ros-humble-diff-drive-controller \
+      ros-humble-joint-state-broadcaster \
+      ros-humble-position-controllers \
+      ros-humble-twist-mux \
+      ros-humble-robot-state-publisher \
+      ros-humble-xacro \
+      ros-humble-navigation2 \
+      ros-humble-nav2-bringup \
+      ros-humble-slam-toolbox \
+      ros-humble-robot-localization \
+      ros-humble-rplidar-ros \
+      ros-humble-v4l2-camera \
+      ros-humble-image-transport-plugins \
+      ros-humble-joy \
+      ros-humble-teleop-twist-joy \
+      ros-humble-cv-bridge \
+      python3-colcon-common-extensions \
+      python3-opencv \
+      v4l-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ws
+
+# Copy manifests first so dependency resolution is cached independently of
+# source edits — a code change should not re-run rosdep.
+COPY src/hardware/bonicbot_a2_hardware/package.xml    src/hardware/bonicbot_a2_hardware/
+COPY src/nav/bonicbot_a2_description/package.xml      src/nav/bonicbot_a2_description/
+COPY src/nav/bonicbot_a2_nav/package.xml              src/nav/bonicbot_a2_nav/
+
+RUN apt-get update \
+    && rosdep install --from-paths src --ignore-src -r -y \
+       --skip-keys "bonicbot_a2_description bonicbot_a2_hardware bonicbot_a2_nav" \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY src/hardware/ src/hardware/
+COPY src/nav/      src/nav/
+
+RUN . /opt/ros/humble/setup.sh \
+    && colcon build \
+       --packages-select bonicbot_a2_hardware bonicbot_a2_description bonicbot_a2_nav \
+       --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# Maps live on a volume so they survive image rebuilds.
+ENV BONICBOT_MAPS_DIR=/maps
+RUN mkdir -p /maps
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ros2", "launch", "bonicbot_a2_hardware", "hardware.launch.py"]

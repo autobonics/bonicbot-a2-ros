@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bonicbot_a2_hardware</name>
+  <version>1.0.0</version>
+  <description>
+    BonicBot A2 hardware layer — owns every /dev/* device on the robot.
+    Contains the ros2_control SystemInterface plugin that drives the ESP32-S3
+    over USB CDC (wheels, servos, IMU, battery, Wi-Fi relay), plus the RPLIDAR
+    and CSI camera drivers.
+  </description>
+  <maintainer email="autobonics@gmail.com">Autobonics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- hardware interface plugin -->
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <!-- ros2_control stack brought up by hardware.launch.py -->
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+  <!-- throttle relay for /joint_states -> /joint_states_throttled, which is
+       what robot_app subscribes to. See hardware.launch.py. -->
+  <exec_depend>topic_tools</exec_depend>
+
+  <!-- robot_description comes from the description package -->
+  <exec_depend>bonicbot_a2_description</exec_depend>
+
+  <!-- other /dev/* owners -->
+  <exec_depend>rplidar_ros</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
+  <!-- camera.launch.py shells out to v4l2-ctl to set the capture frame rate:
+       v4l2_camera_node has no parameter for it, so the rate must be applied to
+       the device directly. Without this the camera free-runs at 30 fps and
+       costs 105% of a core instead of 17%. -->
+  <exec_depend>v4l-utils</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <hardware_interface plugin="${prefix}/bonicbot_a2_hardware.xml"/>
+  </export>
+</package>

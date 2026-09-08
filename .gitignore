@@ -1,1 +1,12 @@
+build/
+install/
+log/
+*.pyc
+__pycache__/
+.vscode/
+.DS_Store
+secrets/
+*.env
 models/
+bonicbot_a2_restructure_plan.md
+logs/
