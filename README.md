@@ -48,6 +48,82 @@ colcon build --packages-up-to bonicbot_a2_nav        # nav
 colcon build --packages-select bonicbot_a2_sim       # sim
 ```
 
+## Build the container image
+
+This repo produces the **base image** that `bonicOS-robot-app` stacks on. Robots
+never pull it directly — they pull `bonicos`, which contains every layer of it
+(`DEPLOYMENT_ARCHITECTURE.md` §2.1).
+
+```bash
+./build-image.sh            # build and tag locally
+./build-image.sh --push     # and publish
+```
+
+**The version comes from git and is never typed.** Same rules as
+`bonicOS-host/deploy/build-deb.sh`, deliberately — one versioning idea across
+the stack rather than one per repo:
+
+| git state | image tag |
+|---|---|
+| at tag `v2.1.0` | `2.1.0` |
+| 7 commits past it | `2.1.0+7.gabc1234` |
+| no tags at all | `0.0.0+g<sha>`, with a note telling you to tag |
+| dirty tree | `+dirty` appended, loudly |
+
+### Why this exists
+
+The tag used to be typed by hand, and `2.0.0` ended up meaning nothing: no git
+tag, no recorded commit, no way to answer "what source is in this image?"
+without opening it.
+
+That cost a day. `bonicos:0.1.2` recorded `ros_image=…bonicbot-a2-ros:2.0.0`,
+which mapped to no commit anywhere — and `2.0.0` turned out to predate the
+`v4l2_camera` → `camera_ros` switch. The symptom was a camera that would not
+stream on a real robot, weeks later, with nothing in the system able to say why.
+
+### What ends up in the image
+
+`/ws/version.txt`, two lines, the same contract as robot_app's
+`/app/version.txt` (§2.6) — bare version first, `key=value` build facts after:
+
+```
+2.1.0
+commit=20f2d795a233eebd2c29a65ef7dd3bbf69b33349
+built=2026-09-11T13:40:00Z
+distro=humble
+```
+
+`commit` is the field that matters: it is what makes a tag traceable back to
+source.
+
+Read it from any image or running container:
+
+```bash
+docker run --rm autobonics/bonicbot-a2-ros:2.1.0 cat /ws/version.txt
+```
+
+robot_app surfaces the same values as `ros_version`, `ros_commit` and
+`ros_distro` in `build_info()`, so a **robot can be asked** which ROS source it
+carries rather than someone opening the image to find out. Keys are unprefixed
+in the file and prefixed on read — write `distro=`, not `ros_distro=`.
+
+### Releasing
+
+```bash
+git push origin develop
+git tag v2.1.0 && git push origin v2.1.0
+./build-image.sh --push
+```
+
+Then bump the pin in `bonicOS-robot-app/versions.env` and rebuild `bonicos`.
+That repo's Dockerfile has **no default base** — a build that forgets the pin
+fails rather than silently using a stale one.
+
+> **A base-image change is expensive for the fleet.** §2.1's layer ordering only
+> makes *robot_app* releases cheap; changing this image means every robot
+> re-downloads the whole thing. Fine at a handful of robots, ~1.5 TB at 500
+> (§2.3). Batch ROS changes rather than shipping them one at a time.
+
 ---
 
 ## Run — simulation
