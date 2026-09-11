@@ -68,7 +68,7 @@ export USE_SIM_TIME=false
 export ROBOT_SERIES=A
 
 # Per-robot hardware calibration lives in bonicOS-robot-app's robot_config.yaml
-# (hardware: encoder_cpr / wheel_radius / camera_vertical_flip), NOT here —
+# (hardware: encoder_cpr / wheel_radius), NOT here —
 # a calibration number is a fact about this one physical robot, not about
 # a2-ros's code. Read it and export what ros2_control.xacro's $(optenv...)
 # and hardware.launch.py's controller override are wired to pick up. Missing
@@ -86,7 +86,7 @@ except Exception as e:
     import sys
     print(f'# robot_config.yaml hardware block unreadable: {e}', file=sys.stderr)
     hw = {}
-for k in ('encoder_cpr', 'wheel_radius', 'camera_vertical_flip'):
+for k in ('encoder_cpr', 'wheel_radius'):
     if k in hw and hw[k] is not None:
         print(f'{k}={hw[k]}')
 ")
@@ -96,12 +96,19 @@ for k in ('encoder_cpr', 'wheel_radius', 'camera_vertical_flip'):
     # "no calibration provisioned".
     while IFS='=' read -r key val; do
         case "$key" in
-            encoder_cpr)          export ENCODER_CPR="$val" ;;
-            wheel_radius)         export WHEEL_RADIUS="$val" ;;
-            camera_vertical_flip) export CAMERA_VERTICAL_FLIP="$val" ;;
+            encoder_cpr)  export ENCODER_CPR="$val" ;;
+            wheel_radius) export WHEEL_RADIUS="$val" ;;
         esac
     done <<< "$HW_JSON"
-    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}${CAMERA_VERTICAL_FLIP:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default} CAMERA_VERTICAL_FLIP=${CAMERA_VERTICAL_FLIP:-unset}"
+    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default}"
+
+# No camera flip key, and nothing to export for one. It was parsed here and
+# exported as CAMERA_VERTICAL_FLIP, which no launch file has read since the
+# camera moved to libcamera/camera_ros — the old v4l2_camera node parameter it
+# fed does not exist on this stack. Rotation is declared in
+# /boot/firmware/config.txt by the base OS image (bonicOS-image), where
+# libcamera reads it at boot and compensates for it, Bayer phase included.
+# See camera.launch.py for why no runtime parameter can do this job.
 fi
 
 start() {

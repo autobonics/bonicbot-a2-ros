@@ -93,9 +93,11 @@ def _camera_node(context, *args, **kwargs):
     # compensates for automatically, Bayer order included. It costs no CPU —
     # the sensor reads out flipped.
     #
-    # So `hardware.camera_vertical_flip` in robot_config.yaml is NOT consumed
-    # here; a robot with an inverted camera needs rotation declared in
-    # /boot/firmware/config.txt instead.
+    # So there is no flip parameter here, and no robot_config.yaml key feeding
+    # one. `hardware.camera_vertical_flip` was both of those and was consumed by
+    # nothing; it was removed on 2026-09-11. An inverted camera is handled at
+    # imaging time — bonicOS-image writes `dtoverlay=ov5647,rotation=180` into
+    # /boot/firmware/config.txt for series A, which is where libcamera reads it.
 
     # No namespace: camera_ros publishes PRIVATE topics (`~/image_raw`), where
     # v4l2_camera published relative ones. Node name alone therefore yields

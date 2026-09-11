@@ -774,11 +774,15 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   both carry `flags=modify-layout`, so flipping shifts the Bayer pattern and libcamera
   would then debayer with the wrong phase and produce wrong colours.
 
-  Consequence: **`hardware.camera_vertical_flip` in robot_app's `robot_config.yaml` is
-  now dead for this purpose.** robot_app still exports `CAMERA_VERTICAL_FLIP`, but
-  nothing consumes it — the old launch file turned it into a `vertical_flip` node
-  parameter that only existed on the legacy stack. Either wire it to the device tree at
-  imaging time or drop the field.
+  Consequence: **there is no camera-flip setting anywhere in software, and there should
+  not be one.** `hardware.camera_vertical_flip` used to exist in robot_app's
+  `robot_config.yaml` and reach this repo as `CAMERA_VERTICAL_FLIP` via
+  `start_session_robot.sh`; nothing consumed it, because the launch file that turned it
+  into a `vertical_flip` node parameter only existed on the legacy stack. The whole path
+  was removed on 2026-09-11 — a setting that looks plumbed and is inert costs more than a
+  missing one. Rotation is declared at imaging time in `/boot/firmware/config.txt` by
+  bonicOS-image (`series/a/series.env`, `SERIES_CAMERA_ROTATION`), which is the only
+  place libcamera can act on it.
 - **`nav2_params_sim.yaml` — unused, slated for deletion.** No launch file references it:
   `navigation.launch.py` defaults `params_file` to `bonicbot_a2_nav/config/nav2_params.yaml`,
   `bringup.launch.py` never forwards `params_file`, and neither does robot_app's
