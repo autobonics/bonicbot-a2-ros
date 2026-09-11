@@ -29,12 +29,26 @@ echo "Device check:"
 status=0
 for dev in /dev/esp /dev/lidar /dev/video0; do
   if [[ -e "$dev" ]]; then
-    printf '  %-12s OK   -> %s\n' "$dev" "$(readlink -f "$dev")"
+    printf '  %-14s OK   -> %s\n' "$dev" "$(readlink -f "$dev")"
   else
-    printf '  %-12s MISSING\n' "$dev"
+    printf '  %-14s MISSING\n' "$dev"
     status=1
   fi
 done
+
+# Optional — a gamepad is not always plugged in, so absence is not a failure.
+if [[ -e /dev/input/js0 ]]; then
+  printf '  %-14s OK   -> %s\n' "/dev/input/js0" "$(stat -c '%U:%G %a' /dev/input/js0)"
+  # Group membership, not the symlink, is what lets joy_node open the device.
+  if ! id -nG "${SUDO_USER:-$USER}" | tr ' ' '\n' | grep -qx input; then
+    printf '  %-14s WARNING: %s is not in the "input" group — joy_node cannot\n' \
+      "" "${SUDO_USER:-$USER}"
+    printf '  %-14s          open the pad. Fix: sudo usermod -aG input %s\n' \
+      "" "${SUDO_USER:-$USER}"
+  fi
+else
+  printf '  %-14s absent (no gamepad connected — not an error)\n' "/dev/input/js0"
+fi
 
 if [[ $status -ne 0 ]]; then
   cat <<'EOF'
@@ -46,8 +60,16 @@ real vendor/product IDs and update config/udev/99-bonicbot.rules:
     udevadm info /dev/ttyUSB0 | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL"
 
 The IDs in the shipped rules file are the common defaults, not guaranteed for
-this unit. If /dev/video0 is missing and the camera is a Module 3 (IMX708), it
-is libcamera-only and will not enumerate as a v4l2 device at all.
+this unit.
+
+/dev/video0 needs no rule and is NOT a sign the camera is usable: on Ubuntu
+22.04's libcamera stack it is the raw `unicam` CSI receiver, which streams only
+the sensor's native Bayer format (GB10 on the ov5647) and nothing else. The
+camera is driven through libcamera (camera_ros), not v4l2_camera. To check the
+camera itself, launch it and watch the topic rather than trusting this symlink:
+
+    ros2 launch bonicbot_a2_hardware camera.launch.py
+    ros2 topic hz /face_camera/image_raw
 EOF
 fi
 

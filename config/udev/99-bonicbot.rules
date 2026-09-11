@@ -16,8 +16,33 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="e
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="lidar", GROUP="dialout", MODE="0660"
 
 # CSI camera needs no rule — it enumerates as /dev/video0 via bcm2835-unicam.
-# NOTE: Camera Module 3 (IMX708) is libcamera-only and will NOT appear as a
-# v4l2 capture device; v4l2_camera works with Camera Module 2 (IMX219).
+# NOTE: that symlink existing does NOT mean the camera is usable from v4l2. On
+# Ubuntu 22.04's libcamera stack /dev/video0 is the RAW CSI receiver: it streams
+# only the sensor's native Bayer format (GB10 on the ov5647) and rejects every
+# other one at VIDIOC_STREAMON. The camera is driven through libcamera
+# (camera_ros), not v4l2_camera — see bonicbot_a2_hardware/launch/camera.launch.py.
+# Camera rotation for an inverted mount is declared in /boot/firmware/config.txt
+# (dtoverlay=ov5647,rotation=180), not here and not in ROS.
+
+# Joystick / gamepad — teleop (bonicbot_a2_nav joystick.launch.py).
+#
+# PERMISSIONS ARE THE POINT, not the symlink. /dev/input/js0 is root:input with
+# default mode 0660, and joy_node runs as the robot user — which is NOT in the
+# `input` group on a fresh Ubuntu install. Without access it cannot open the
+# device and teleop is silently dead, with no error naming permissions.
+#
+# The robust fix is group membership, which covers every pad model:
+#   sudo usermod -aG input <user>      # log out/in to take effect
+# The MODE="0666" below is a per-model fallback for when that is not in place.
+#
+# The symlinks are for humans and external tooling only: joystick.yaml sets
+# `device_id: 0`, so joy_node opens /dev/input/js0 BY INDEX and never looks at
+# them.
+SUBSYSTEM=="input", ATTRS{name}=="*Controller*", SYMLINK+="input/joystick"
+SUBSYSTEM=="input", ATTRS{name}=="Sony Interactive Entertainment Wireless Controller", SYMLINK+="input/joystick"
+SUBSYSTEM=="input", ATTRS{name}=="Xbox Wireless Controller", SYMLINK+="input/joystick"
+# ShanWan Android GamePad — the pad shipped with A2 units.
+SUBSYSTEM=="input", ATTRS{idVendor}=="2563", ATTRS{idProduct}=="0526", MODE="0666", SYMLINK+="joystick"
 
 # Apply:
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
