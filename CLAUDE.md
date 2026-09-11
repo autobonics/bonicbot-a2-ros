@@ -113,7 +113,7 @@ M1-only).
 | Servos | Waveshare serial servos — **ESP-mediated**, 7 fitted (see registry below) |
 | IMU | On ESP board — polled over CDC |
 | LiDAR | RPLIDAR C1M1 — USB, **Pi-direct** (`/dev/lidar`) |
-| Camera | CSI camera module in the head — v4l2, **Pi-direct** (`/dev/video0`), published as `face_camera` |
+| Camera | CSI camera module (ov5647) in the head — **libcamera**, **Pi-direct** (`/dev/video0` + `bcm2835-isp`), published as `face_camera`. NOT v4l2_camera — see the camera-stack note below |
 | Battery | 4400 mAh — SOC/voltage/current from ESP |
 | Phone | Android — Flutter app (BonicOS UI layer), BLE to ESP + WSS to robot_app |
 
@@ -184,7 +184,7 @@ bonicbot-a2-ros/
     │           ├── hardware.launch.py             # controller_manager + spawners,
     │           │                                  # includes the two below
     │           ├── rplidar.launch.py              # /dev/lidar  → /scan
-    │           └── camera.launch.py               # /dev/video0 → /face_camera/image_raw
+    │           └── camera.launch.py               # libcamera+ISP → /face_camera/image_raw
     │
     ├── nav/                                       # no /dev/* access at all
     │   ├── bonicbot_a2_description/               # URDF/xacro + meshes, rsp launch
@@ -262,7 +262,7 @@ RPi4 — A2 Pro
 │   │    └── arm/head/gripper position ctrls   │
 │   ├── twist_mux  (/cmd_vel, /cmd_vel_joy)    │
 │   ├── rplidar_ros  (/dev/lidar)  → /scan     │
-│   └── v4l2_camera  (/dev/video0) → /camera/* │
+│   └── camera_ros (libcamera+ISP) → /face_cam │
 │                                              │
 │  bonicbot_a2_description → robot_state_pub   │
 │  bonicbot_a2_nav             — no /dev/*     │
@@ -297,7 +297,7 @@ repo's concern beyond the topic contract below.
 | `/imu/data` | `sensor_msgs/Imu` | ~10 Hz (polled) | ESP IMU (`CMD_IMU_REQUEST` → `RESP_IMU`) |
 | `/diff_cont/odom` | `nav_msgs/Odometry` | 50 Hz | diff_drive_controller (ESP encoders) |
 | `/joint_states` | `sensor_msgs/JointState` | 50 Hz | joint_state_broadcaster (wheels + 7 servos) |
-| `/face_camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI head camera (v4l2) |
+| `/face_camera/image_raw` | `sensor_msgs/Image` | ~6 fps | CSI head camera (libcamera + hardware ISP), `rgb8` |
 | `/odometry/filtered` | `nav_msgs/Odometry` | 10 Hz | EKF — owns `odom→base_link` TF |
 | `/battery_state` | `sensor_msgs/BatteryState` | on `RESP_BATTERY` | ESP battery (`percentage` is 0..1; the frame's SOC is 0-100) |
 
@@ -537,9 +537,17 @@ services:
     devices:
       - /dev/esp
       - /dev/lidar
+      # libcamera needs the WHOLE pipeline, not just the capture node:
+      # unicam (/dev/video0 + its /dev/mediaN) AND the bcm2835-isp nodes it
+      # debayers through. Passing /dev/video0 alone is enough for the old
+      # v4l2_camera path and NOT enough for this one — untested under Docker.
       - /dev/video0
+      - /dev/vchiq
     volumes:
       - /home/pi/maps:/maps
+      # media/video node numbering is not stable across boots, so bind the
+      # whole dev tree rather than enumerating nodes that move.
+      - /dev:/dev
     environment:
       - ROS_LOCALHOST_ONLY=1
       - ROS_DOMAIN_ID=0
@@ -606,8 +614,10 @@ bridges (clock, scan, imu, camera) → the same seven controller spawners → tw
 joystick → EKF. Same composition M1's `bonicbot_m1_sim` uses.
 
 > `sim.launch.py` already carries a `use_real_camera` arg — `False` bridges Gazebo's
-> camera, `True` runs the real `v4l2_camera` node instead (a dev laptop's webcam). Both
-> publish `/camera/image_raw`, so `vision_pipeline.py` doesn't care which is running.
+> camera, `True` includes `camera.launch.py` for a real one. Both publish the same topic,
+> so `vision_pipeline.py` doesn't care which is running. Note that path now goes through
+> libcamera too: it handles USB/UVC webcams as well as CSI sensors, but a dev laptop
+> needs `ros-humble-camera-ros` installed for the arg to work at all.
 
 ---
 
@@ -717,17 +727,58 @@ ros2 launch bonicbot_a2_nav bringup.launch.py
   just gives it more room to spin. Only reducing the number of spinners helped.
   Further gains are architectural (fewer subscriptions, or an `rclcpp` bridge), not
   configuration.
-- **The camera was running at 30 fps, not 6 — fixed 2026-08-28.** `v4l2_camera_node` has
-  **no frame-rate parameter** (`ros2 param list` shows `image_size`, `pixel_format`,
-  `output_encoding` and the V4L2 controls, nothing for timing), so the
-  `time_per_frame: [1, 6]` that sat in `camera.launch.py` was silently ignored —
-  `ros2 param get` on it answered "Parameter not set". The camera free-ran at its 30 fps
-  default and cost **105.6% of a core**, more than every Nav2 node combined, saturating
-  the Pi to 23% idle and making SSH sluggish. At the intended 6 fps the same node costs
-  **17.6%**. `camera.launch.py` now applies the rate to the DEVICE with `v4l2-ctl
-  --set-parm`, chained ahead of the node via `OnProcessExit`; the node does not override
-  it once running. Requires `v4l-utils`. Lesson worth keeping: a parameter in a launch
-  file is not evidence the node accepts it — check `ros2 param list` on the running node.
+- **The camera moved from v4l2_camera to libcamera — 2026-09-10, forced by an OS
+  reinstall.** Nothing about the hardware or this repo's code changed; a fresh OS image
+  changed what `/dev/video0` *is*, and the old code could no longer work at all.
+
+  | | Old OS (worked) | Fresh OS (now) |
+  |---|---|---|
+  | `/dev/video0` driver | `bm2835 mmal` (legacy stack) | **`unicam`** (raw CSI receiver) |
+  | config.txt | `start_x=1` + `gpu_mem=128` | **`camera_auto_detect=1`** |
+  | formats offered | YUYV/RGB (firmware converts) | **raw Bayer only** |
+  | `v4l2-ctl --set-parm` (fps) | worked | `Inappropriate ioctl for device` |
+  | `vertical_flip` control | on the video node | subdev only, `flags=modify-layout` |
+
+  On the new stack `unicam` hands out the ov5647's native **SGBRG10** (fourcc `GB10`)
+  and nothing else. Every other advertised fourcc fails at `VIDIOC_STREAMON` with
+  EINVAL and `unicam fe801000.csi: Failed to start media pipeline: -22` — verified by
+  streaming each in turn (`GB10` captured; `pGCC`/`GBRG`/`BA81`/`GRBG`/`RGGB`/`YUYV`/
+  `RGB3` all failed). **The advertised format list is a lie**: the driver accepts
+  fourccs in `S_FMT` it cannot deliver, so a format only proves itself at `STREAMON`.
+  `v4l2_camera` cannot consume 10-bit Bayer, so it could never work here at any setting.
+
+  `camera.launch.py` now runs **`camera_ros`** (needs `ros-humble-camera-ros`, which
+  pulls `ros-humble-libcamera` 0.1.0 — Ubuntu's own `libcamera0` is a 2020 snapshot and
+  is NOT a substitute). libcamera drives unicam for raw Bayer and routes it through the
+  **bcm2835-isp hardware ISP**, which debayers at zero CPU cost. Same topics
+  (`/face_camera/image_raw` + `camera_info` + `compressed`), same `rgb8`, so robot_app
+  and `vision_pipeline.py` needed no change. **CPU fell to 7.6%**, from 17.6% on the old
+  stack at the same 6 fps (and 105.6% when it free-ran at 30).
+
+  Frame rate is now `FrameDurationLimits` (µs, min==max to pin it) — the old
+  `v4l2-ctl --set-parm` step was a silent no-op on this device regardless, since unicam
+  has no `S_PARM` support at all.
+
+  The original lesson still stands and bit twice here: **a parameter in a launch file is
+  not evidence the node accepts it.** `camera_ros` exposes an `orientation` parameter
+  that does nothing on libcamera 0.1 — it is implemented against the Orientation API
+  added in 0.2, and merely logs `parameter 'orientation' not supported on libcamera 0.1`.
+- **Camera rotation is OS config, not app config.** A robot with an upside-down camera
+  needs `camera_auto_detect=0` + `dtoverlay=ov5647,rotation=180` in
+  `/boot/firmware/config.txt`. That sets `V4L2_CID_CAMERA_SENSOR_ROTATION` (the read-only
+  `camera_sensor_rotation` control), which libcamera reads and compensates for
+  automatically — including the Bayer-phase shift — and the sensor reads out flipped, so
+  it costs nothing. Set once; it persists across reboots.
+
+  Do **not** poke the sensor's `vertical_flip`/`horizontal_flip` V4L2 controls directly:
+  both carry `flags=modify-layout`, so flipping shifts the Bayer pattern and libcamera
+  would then debayer with the wrong phase and produce wrong colours.
+
+  Consequence: **`hardware.camera_vertical_flip` in robot_app's `robot_config.yaml` is
+  now dead for this purpose.** robot_app still exports `CAMERA_VERTICAL_FLIP`, but
+  nothing consumes it — the old launch file turned it into a `vertical_flip` node
+  parameter that only existed on the legacy stack. Either wire it to the device tree at
+  imaging time or drop the field.
 - **`nav2_params_sim.yaml` — unused, slated for deletion.** No launch file references it:
   `navigation.launch.py` defaults `params_file` to `bonicbot_a2_nav/config/nav2_params.yaml`,
   `bringup.launch.py` never forwards `params_file`, and neither does robot_app's

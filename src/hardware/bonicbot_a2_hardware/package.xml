@@ -37,12 +37,12 @@
 
   <!-- other /dev/* owners -->
   <exec_depend>rplidar_ros</exec_depend>
-  <exec_depend>v4l2_camera</exec_depend>
-  <!-- camera.launch.py shells out to v4l2-ctl to set the capture frame rate:
-       v4l2_camera_node has no parameter for it, so the rate must be applied to
-       the device directly. Without this the camera free-runs at 30 fps and
-       costs 105% of a core instead of 17%. -->
-  <exec_depend>v4l-utils</exec_depend>
+  <!-- libcamera, not v4l2_camera: unicam only streams the ov5647's native
+       10-bit Bayer (GB10), which v4l2_camera cannot consume — every other
+       format fails STREAMON with "Failed to start media pipeline: -22".
+       camera_ros drives libcamera, which routes Bayer through the bcm2835-isp
+       hardware ISP. See camera.launch.py. -->
+  <exec_depend>camera_ros</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
