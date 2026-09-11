@@ -57,6 +57,35 @@ RUN . /opt/ros/humble/setup.sh \
        --packages-select bonicbot_a2_hardware bonicbot_a2_description bonicbot_a2_nav \
        --cmake-args -DCMAKE_BUILD_TYPE=Release
 
+# The one authoritative statement of what this ROS image is.
+#
+# WHY THIS EXISTS. The tag alone was never enough. `bonicos:0.1.2` recorded
+# `ros_image=autobonics/bonicbot-a2-ros:2.0.0`, and that tag mapped to no
+# commit anywhere — so "what ROS stack is this robot running?" could only be
+# answered by opening the image. It took a camera that would not stream on real
+# hardware to discover that 2.0.0 predated the v4l2_camera → camera_ros switch.
+#
+# TWO LINES, and the split is the same contract as robot_app's
+# /app/version.txt (DEPLOYMENT_ARCHITECTURE.md §2.6):
+#
+#   line 1   the version, ALONE. Anything appended makes this image report a
+#            version matching no tag that was ever published.
+#   line 2+  key=value build facts. `commit` is the one that matters: it is
+#            what makes a tag traceable back to source.
+#
+# Written from build args by build-image.sh, never by hand — a version someone
+# types is a version that goes stale.
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+# Keys are UNPREFIXED here — this file belongs to the ROS image, so `distro=`
+# is unambiguous in context. robot_app prefixes them with `ros_` when it merges
+# them into build_info(), so `distro` surfaces as `ros_distro`. Writing
+# `ros_distro=` here would come back as `ros_ros_distro`.
+RUN printf '%s\ncommit=%s\nbuilt=%s\ndistro=%s\n' \
+      "${VERSION}" "${GIT_COMMIT}" "${BUILD_DATE}" "${ROS_DISTRO:-humble}" \
+      > /ws/version.txt
+
 # Maps live on a volume so they survive image rebuilds.
 ENV BONICBOT_MAPS_DIR=/maps
 RUN mkdir -p /maps
