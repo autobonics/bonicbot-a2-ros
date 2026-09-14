@@ -8,6 +8,5 @@ __pycache__/
 secrets/
 *.env
 models/
-bonicbot_a2_restructure_plan.md
 logs/
-CLAUDE.md
+docs/
