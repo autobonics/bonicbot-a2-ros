@@ -3,16 +3,14 @@
 ROS2 Humble stack for the **BonicBot A2 Pro** — differential-drive base with two arms,
 grippers and a neck, driven by an ESP32-S3 over USB CDC, on a Raspberry Pi 4.
 
-- **Architecture and design rules:** [CLAUDE.md](./CLAUDE.md)
-- **Restructure / protocol migration:** [bonicbot_a2_restructure_plan.md](./bonicbot_a2_restructure_plan.md)
+- **Restructure / protocol migration:** [bonicbot_a2_restructure_plan.md](./docs/bonicbot_a2_restructure_plan.md)
 
 > **Verified in simulation** (2026-08-23): builds clean, all seven controllers activate,
 > camera/LiDAR/EKF publish, and mapping → save → navigation works end to end driven by
 > `robot_app`.
 >
 > ⚠️ **Nothing has run on real hardware.** The whole ESP32 USB CDC path — servo IDs,
-> angle convention, inversion, encoders, battery — is untested. Read the status banner in
-> [CLAUDE.md](./CLAUDE.md) before driving the robot.
+> angle convention, inversion, encoders, battery — is untested.
 
 ---
 
