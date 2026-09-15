@@ -395,7 +395,7 @@ class RobotAgentNode(Node):
         self._shoulder_min = math.radians(jl.get('shoulder_pitch_min_deg', -45.0))
         self._shoulder_max = math.radians(jl.get('shoulder_pitch_max_deg',  180.0))
         self._elbow_min    = math.radians(jl.get('elbow_min_deg',    0.0))
-        self._elbow_max    = math.radians(jl.get('elbow_max_deg',  50.0))
+        self._elbow_max    = math.radians(jl.get('elbow_max_deg',  45.0))
         self._neck_min     = math.radians(jl.get('neck_yaw_min_deg', -90.0))
         self._neck_max     = math.radians(jl.get('neck_yaw_max_deg',  90.0))
         self._gripper_open  = float(jl.get('gripper_open',  -0.785))
