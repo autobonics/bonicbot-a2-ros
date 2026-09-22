@@ -89,14 +89,32 @@ def generate_launch_description():
     # everything else. No env var set (no calibration provisioned for this
     # robot) means no override dict is added at all, so behaviour is
     # byte-identical to before this existed.
+    #
+    # wheel_separation rides the same mechanism, added 2026-09-21, but it is
+    # the simpler case: diff_cont is its ONLY consumer. The hardware interface
+    # converts per-wheel (rad/s <-> m/s) and never needs the track width, so
+    # unlike wheel_radius there is no ros2_control.xacro copy that has to move
+    # in lockstep. robot_core.xacro's `wheel_offset_y` (separation / 2) is NOT
+    # overridden here and stays at its nominal value: it positions the wheel
+    # links for TF and drives the Gazebo plugin, neither of which feeds the
+    # odometry this calibrates — exactly as that file's own `wheel_radius`
+    # property is left alone by the WHEEL_RADIUS override above.
     controller_manager_params = [
         {'robot_description': robot_description},
         os.path.join(pkg_share, 'config', 'controllers.yaml'),
     ]
+    # Gathered into ONE override dict rather than appended one per key, so the
+    # overrides remain a single parameter source however many are provisioned.
+    # With no env vars set the list is untouched and behaviour is unchanged.
+    diff_cont_overrides = {}
     if 'WHEEL_RADIUS' in os.environ:
+        diff_cont_overrides['wheel_radius'] = float(os.environ['WHEEL_RADIUS'])
+    if 'WHEEL_SEPARATION' in os.environ:
+        diff_cont_overrides['wheel_separation'] = \
+            float(os.environ['WHEEL_SEPARATION'])
+    if diff_cont_overrides:
         controller_manager_params.append(
-            {'diff_cont': {'ros__parameters':
-                {'wheel_radius': float(os.environ['WHEEL_RADIUS'])}}})
+            {'diff_cont': {'ros__parameters': diff_cont_overrides}})
 
     controller_manager = Node(
         package='controller_manager',
