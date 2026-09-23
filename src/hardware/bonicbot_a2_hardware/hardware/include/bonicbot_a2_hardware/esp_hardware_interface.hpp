@@ -2,9 +2,7 @@
 //
 // On A2 the ESP32 is the sole motion controller: wheels (PWM + encoders), all
 // seven serial servos, the IMU and the battery monitor sit behind it, reached
-// over one CDC-ACM link. This plugin is therefore an ACTIVE CDC master, not a
-// relay (contrast M1, where the Jetson drives its actuators directly and the
-// ESP bridge only forwards IMU/Wi-Fi traffic).
+// over one CDC-ACM link. This plugin is therefore an ACTIVE CDC master.
 //
 // It also serves the Wi-Fi relay topics. That is deliberate: SystemInterface
 // has no node of its own, so an internal rclcpp::Node is created and spun for

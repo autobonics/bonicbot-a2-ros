@@ -1,9 +1,9 @@
 # BonicBot A2 Pro — two containers.
 #
-# M1 runs three (hardware_drivers + robot_nav + robot_app); A2 folds hardware
-# and nav into one image because the RPi4 cannot spare the overhead of a second.
+# hardware and nav fold into one image because the RPi4 cannot spare the
+# overhead of a second.
 #
-# robot_app is the SAME image M1 uses — series behaviour is selected by
+# robot_app is a shared cross-series image — series behaviour is selected by
 # ROBOT_SERIES, and its A-series config already exists upstream.
 
 services:

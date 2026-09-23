@@ -38,8 +38,7 @@
          apt-cache policy ros-humble-opennav-docking ros-humble-apriltag-ros \
                           ros-humble-image-proc ros-humble-usb-cam
 
-       A missing binary here changes the plan, not just the build. M1 carries
-       exactly this as an unresolved open item — do not inherit it silently. -->
+       A missing binary here changes the plan, not just the build. -->
   <exec_depend>opennav_docking</exec_depend>
   <exec_depend>apriltag_ros</exec_depend>
   <exec_depend>apriltag_msgs</exec_depend>

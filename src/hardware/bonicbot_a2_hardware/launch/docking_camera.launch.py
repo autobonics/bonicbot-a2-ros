@@ -5,11 +5,10 @@ Started only on robots fitted with the docking addon: hardware.launch.py's
 robot_config.yaml's `addons: {docking: true}`. On a plain A2 this file is never
 included and nothing here exists. See docs/bonicbot_a2_docking.md §1.
 
-Named `docking_camera`, publishing on `/docking_camera/image_raw`, matching
-bonicbot_m1_hardware_bringup/usb_cameras.launch.py exactly. That is not
-cosmetic: robot_app's CAMERAS override already accepts
-`face=/topic,docking=/topic`, so streaming the dock view over WebRTC needs no
-code change on either series — only the env var on addon-fitted robots.
+Named `docking_camera`, publishing on `/docking_camera/image_raw`. robot_app's
+CAMERAS override already accepts `face=/topic,docking=/topic`, so streaming
+the dock view over WebRTC needs no code change — only the env var on
+addon-fitted robots.
 
 
 ── Why usb_cam and not camera_ros ───────────────────────────────────────
@@ -23,18 +22,15 @@ it through libcamera would add a Bayer pipeline to a device that produces no
 Bayer.
 
 It has to be USB at all because A2's single CSI port is already taken by the
-head camera. The unit itself is the same module M1 already runs, which is why
-these parameters are M1's verbatim — pixel_format, resolution and the
-transport trimming are all proven on that hardware.
+head camera.
 
-── The one change from M1: framerate ────────────────────────────────────
+── Framerate: 10, not 30 ─────────────────────────────────────────────────
 
-M1 runs 30 fps on a Jetson. A2 runs on an RPi4 that already sits at ~22% idle
-during a live Nav2 session (docs/CLAUDE.md, profiled 2026-08-29) and feeds a
-CPU AprilTag detector. 30 fps buys nothing on an approach measured in tens of
-seconds, and the head camera has already demonstrated on this exact board what
-an unconstrained camera node costs: 105.6% of a core at 30 fps against 17.6%
-at 6 fps.
+A2 runs on an RPi4 that already sits at ~22% idle during a live Nav2 session
+(docs/CLAUDE.md, profiled 2026-08-29) and feeds a CPU AprilTag detector. 30
+fps buys nothing on an approach measured in tens of seconds, and the head
+camera has already demonstrated on this exact board what an unconstrained
+camera node costs: 105.6% of a core at 30 fps against 17.6% at 6 fps.
 """
 
 from launch import LaunchDescription
@@ -53,8 +49,8 @@ def generate_launch_description():
     )
     framerate_arg = DeclareLaunchArgument(
         'framerate', default_value='10.0',
-        description='Capture frame rate. 10 against M1\'s 30 — this runs on an '
-                    'RPi4 feeding a CPU AprilTag detector, see the note in this file',
+        description='Capture frame rate. 10, not 30 — this runs on an RPi4 '
+                    'feeding a CPU AprilTag detector, see the note in this file',
     )
     # ── Intrinsics are NOT optional for docking ──────────────────────────
     #
@@ -79,7 +75,7 @@ def generate_launch_description():
     # Plain RGB, so trim the transports image_transport would otherwise
     # advertise by default: compressedDepth is meaningless for RGB (its codec
     # only accepts depth encodings) and theora is unused. Fewer advertised
-    # encodings matters once this streams over WebRTC. M1's reasoning, kept.
+    # encodings matters once this streams over WebRTC.
     rgb_only_transports = ['image_transport/raw', 'image_transport/compressed']
 
     docking_camera = Node(

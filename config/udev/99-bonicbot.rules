@@ -3,7 +3,6 @@
 # Install with scripts/setup_udev.sh (or copy to /etc/udev/rules.d/ manually).
 #
 # A2 has ONE ESP32-S3 board, so a plain vendor/product match is unambiguous.
-# (M1 carries three boards sharing 303a:1001 and has to disambiguate by serial.)
 #
 # Find your IDs:
 #   udevadm info /dev/ttyACM0 | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL"
@@ -39,14 +38,12 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="l
 #
 # ATTR{index}=="0" is load-bearing: a UVC camera enumerates MORE THAN ONE
 # /dev/video* node (the extra ones are metadata/stream siblings), and without
-# it the symlink can land on a node that streams nothing. Same guard M1 uses
-# for its two USB cameras.
+# it the symlink can land on a node that streams nothing.
 #
-# A plain vendor/product match is enough here where M1 has to match by USB
-# port: M1 fits two identical Waveshare cameras reporting the same serial,
-# A2 fits exactly one USB camera. (The head camera is CSI and needs no rule —
-# see the note below.) If a second USB camera is ever added, disambiguate by
-# KERNELS the way M1 does.
+# A plain vendor/product match is enough here since A2 fits exactly one USB
+# camera. (The head camera is CSI and needs no rule — see the note below.) If
+# a second USB camera is ever added, disambiguate by physical USB port
+# (KERNELS) instead.
 SUBSYSTEM=="video4linux", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", ATTR{index}=="0", SYMLINK+="dock_cam", GROUP="video", MODE="0660"
 
 # Joystick / gamepad — teleop (bonicbot_a2_nav joystick.launch.py).

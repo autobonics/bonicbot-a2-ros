@@ -207,8 +207,8 @@ ros2 launch bonicbot_a2_nav bringup.launch.py slam:=false map_name:=bonicbot_a2_
 Maps live in `$BONICBOT_MAPS_DIR` (default `/maps`, the Docker volume). For bare-metal
 dev, export it: `export BONICBOT_MAPS_DIR=$PWD/maps`.
 
-> `map_name` **includes the `.yaml` extension** — same convention as
-> `bonicbot_m1_nav`, and what robot_app's NavModeManager passes.
+> `map_name` **includes the `.yaml` extension** — that is what robot_app's
+> NavModeManager passes.
 
 ---
 
@@ -221,7 +221,7 @@ docker compose up -d
 
 Three services: `bonicbot_ros` (hardware), `bonicbot_nav` (SLAM/Nav2 — same image,
 separate process so Nav2 can restart without cycling the hardware link), and `robot_app`
-(shared with M1, `ROBOT_SERIES=A`). All `restart: always`.
+(`ROBOT_SERIES=A`). All `restart: always`.
 
 ---
 
@@ -257,7 +257,7 @@ Start it with `ros2 launch bonicbot_a2_nav bringup.launch.py use_vision:=true`.
 | Topic | Direction | Notes |
 |---|---|---|
 | `/scan` | lidar → nav | RPLIDAR C1M1 |
-| `/imu/data` | ESP → nav | Polled over CDC (**not** `/esp/imu` — that's M1) |
+| `/imu/data` | ESP → nav | Polled over CDC |
 | `/diff_cont/odom` | ESP encoders → nav | diff_drive_controller |
 | `/odometry/filtered` | EKF | Owns `odom→base_link` |
 | `/joint_states` | ESP → nav | Wheels + 7 servos |
@@ -265,7 +265,7 @@ Start it with `ros2 launch bonicbot_a2_nav bringup.launch.py use_vision:=true`.
 | `/cmd_vel` | nav → hardware | twist_mux prio 10 |
 | `/cmd_vel_joy` | joystick → hardware | twist_mux prio 100 (always wins) |
 | `/{left,right}_arm_controller/commands` | app → hardware | `Float64MultiArray` |
-| `/face_camera/image_raw` | camera → nav/app | Head camera. Same name M1 uses, so robot_app addresses both series alike |
+| `/face_camera/image_raw` | camera → nav/app | Head camera |
 | `/esp/wifi_credentials` | ESP → robot_app | Phone wrote them over BLE |
 | `/esp/wifi_status` | robot_app → ESP | Replies to the phone |
 

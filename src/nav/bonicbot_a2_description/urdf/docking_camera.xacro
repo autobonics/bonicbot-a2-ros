@@ -8,9 +8,8 @@
      no TF frames, no sim sensor. That is the addon contract (see
      docs/bonicbot_a2_docking.md §1): absent, not disabled.
 
-     Mirrors bonicbot_m1_description/urdf/usb_cameras.xacro's docking camera
-     deliberately — same link names, same optical-frame convention, same topic
-     — so dock_pose_publisher and robot_app address both series identically.
+     Link names and the optical-frame convention are fixed by ROS/REP-103 and
+     by what dock_pose_publisher/apriltag_ros expect, not by any other robot.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" >
 
@@ -48,7 +47,7 @@
         <!-- rpy yaw = pi: the link's +X looks BACKWARD along the chassis,
              because the robot reverses onto the dock (docking.yaml
              dock_backwards: true). -->
-        <!-- x=-0.180: THE LENS MUST SIT OUTSIDE THE ROBOT'S OWN GEOMETRY.
+        <!-- x=-0.155: THE LENS MUST SIT OUTSIDE THE ROBOT'S OWN GEOMETRY.
              There are TWO nested enclosures here and both have to be cleared:
 
                chassis box   ends at x = -0.114  (chassis_length 0.228 / 2)
@@ -90,11 +89,9 @@
          image. Exactly the bug camera.xacro documents for the head camera
          (SDFormat 12 / gz-sim Fortress).
 
-         This is also why the link below carries mass and inertia where M1's
-         equivalent does not: M1 lets its docking link lump into base_link, so
-         a massless visual-only link is harmless there. Lumping disabled means
-         gz-sim treats this as a link of its own and a zero-mass link is not
-         valid. -->
+         This is also why the link below carries mass and inertia rather than
+         being a massless visual-only link: with lumping disabled, gz-sim treats
+         this as a link of its own, and a zero-mass link is not valid there. -->
     <gazebo reference="docking_camera_joint">
         <disableFixedJointLumping>true</disableFixedJointLumping>
     </gazebo>
@@ -120,8 +117,8 @@
 
     <!-- ROS optical convention (z forward, x right, y down) from the ROS body
          convention (x forward, y left, z up). Identical to the head camera's
-         optical joint and to M1's — apriltag_ros assumes it, and the tag pose
-         comes out rotated 90° in two axes if it is wrong. -->
+         optical joint — apriltag_ros assumes it, and the tag pose comes out
+         rotated 90° in two axes if it is wrong. -->
     <joint name="docking_camera_optical_joint" type="fixed">
         <parent link="docking_camera_link"/>
         <child link="docking_camera_link_optical"/>
@@ -143,7 +140,7 @@
              publisher → docking_server → robot_app) is testable before the
              addon hardware exists.
 
-             horizontal_fov 1.5008 rad (~86°) is M1's figure for this same USB
+             horizontal_fov 1.5008 rad (~86°) is the figure for this USB
              module. update_rate 10 matches what docking_camera.launch.py asks
              the real camera for — sim should not be easier than hardware.
              far clip 10 m is well past the ~2 m the 0.10 m tag is detectable

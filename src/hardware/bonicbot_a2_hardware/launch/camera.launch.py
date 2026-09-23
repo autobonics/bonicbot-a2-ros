@@ -1,13 +1,11 @@
 """BonicBot A2 head camera — RPi CSI module (ov5647) via libcamera.
 
-Named `face_camera`, matching bonicbot_m1_hardware_bringup/usb_cameras.launch.py.
-A2 fits exactly one camera and it sits in the head (camera_joint parents to
-`head`), so it is the same thing M1 calls its face camera. Sharing the topic
-name means robot_app addresses both series identically — its per-series
-`cameras` map has a "face" entry either way, and a WebRTC client sees the same
-track name on both robots.
+Named `face_camera`: A2 fits exactly one built-in camera and it sits in the
+head (camera_joint parents to `head`). robot_app's per-series `cameras` map
+has a "face" entry, and a WebRTC client sees that track name.
 
-M1 additionally has `docking_camera` and `depth_camera`; A2 has neither.
+A2 also has an optional rear `docking_camera` (see docking_camera.launch.py)
+on robots fitted with the docking addon — absent otherwise.
 """
 
 from launch import LaunchDescription

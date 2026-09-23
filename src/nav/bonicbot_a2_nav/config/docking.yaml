@@ -1,12 +1,8 @@
 # BonicBot A2 docking — Nav2 Docking Server + AprilTag pose detection.
 #
 # ADDON ONLY. Loaded by docking.launch.py, which only runs on robots carrying
-# the docking addon. Full design: docs/bonicbot_a2_docking.md
-#
-# Mirrors bonicbot_m1_nav/config/docking.yaml, which in turn mirrors the
-# reference Nav2's own docking tutorial points to (NVIDIA-ISAAC-ROS/nova_carter,
-# nova_carter_docking.yaml). ONE structural difference from both, and it is the
-# centre of the A2 design: there is no `docks:` database here. See below.
+# the docking addon. Full design and verified sim results:
+# docs/bonicbot_a2_docking.md
 
 docking_server:
   ros__parameters:
@@ -26,199 +22,127 @@ docking_server:
     # A jump of a few cm during the final approach is a jump in the commanded
     # path. Must match dock_pose_publisher's fixed_frame below.
     fixed_frame: "odom"
-    # The docking camera is rear-mounted, so the robot reverses onto the dock.
-    # Same as M1. See docking_camera.xacro's joint for the geometry.
+    # The docking camera is rear-mounted (docking_camera.xacro), so the robot
+    # reverses onto the dock.
     dock_backwards: true
     dock_prestaging_tolerance: 0.5
 
     dock_plugins: ['dock_charger']
     dock_charger:
       plugin: 'opennav_docking::SimpleChargingDock'
-      # 5 cm — the reference implementation's own default. NOT yet validated
-      # against A2's charging-contact geometry.
+
+      # ── Approach geometry — verified end-to-end in sim, 2026-09-24 ──────
+      #
+      # A full dock + undock cycle now runs clean from a cold start: dead
+      # straight tracking in both directions (y and yaw pinned near zero the
+      # whole way), 73mm final standoff, no oscillation. These five values
+      # (docking_threshold, staging_x/yaw_offset, external_detection_rotation_
+      # yaw, external_detection_translation_x) are what got it there, and they
+      # interact — do not change one without re-verifying the others against a
+      # live /staging_pose and /dock_pose (both are always published; read
+      # them, do not re-derive from the opennav_docking source, which does not
+      # reliably match the behavior of the installed binary — see the
+      # staging_x/yaw_offset note below for how that was discovered).
+      #
+      # docking_threshold covers a real 0.25m gap: SimpleChargingDock's
+      # isDocked() checks distance to dock_pose_ directly, but the control law
+      # actually drives toward dock_pose_ + a fixed 0.25m internal
+      # "backward_projection" margin (docking_server.cpp, not configurable).
+      # 0.05 (upstream's default) is smaller than that gap, so isDocked()
+      # structurally could never fire — the robot would reach its own control
+      # target and stop advancing (r=0 in the control law) 0.25m before ever
+      # satisfying the success check. 0.28 covers the gap with a small margin.
       docking_threshold: 0.28
-      # How far out the robot stages before the final approach. Upstream
-      # default; re-measure once a real dock exists.
+
+      # Forward offset (metres) of the undock staging point from the robot's
+      # docked position, and the staging heading offset. Both were measured
+      # empirically via /staging_pose during a live undock, not derived from
+      # source: reading simple_charging_dock.cpp's getStagingPose() and
+      # docking_server.cpp's undockRobot() predicts an internal "+pi" flip on
+      # the robot's heading before staging is computed from it — but the
+      # observed /staging_pose (x=-4.309, yaw=-179.96 from a robot docked at
+      # x=-3.607, yaw=0.04) only matches if that flip does NOT happen on this
+      # installed opennav_docking build. Signs below are calibrated against
+      # that measured reality, not the source. With the old upstream defaults
+      # (staging_x_offset -0.7, matching a flip that isn't occurring) the
+      # undock target computed 0.7m BEHIND the docked robot, into the dock and
+      # the wall, and the robot arced into it on one wheel trying to reach it.
       staging_x_offset: 0.7
-      # Was -0.7 (upstream's own default). With no +pi actually applied (see
-      # staging_yaw_offset above), NEGATIVE pushed the undock target BACKWARD,
-      # deeper into the dock/wall, not away -- exactly the "one wheel spins,
-      # robot arcs into the wall" behavior seen 2026-09-24. Positive pushes it
-      # forward/away, matching physical intent.
-      # MUST BE pi FOR A REAR-MOUNTED CAMERA. Verified against the Humble
-      # source: simple_charging_dock.cpp never reads dock_backwards — it sets
-      # the staging heading as exactly (dock_yaw + staging_yaw_offset).
-      # dock_backwards lives in the docking_server and only flips the approach
-      # controller's drive direction; it does NOT turn the robot around.
-      #
-      # Left at the 0.0 default the staging heading came out 180 deg — nose
-      # toward the dock — so the robot SPUN 180 deg on the spot, which pointed
-      # the rear docking camera away from the tag, lost detection, and aborted
-      # with error 904. With pi the heading is 180+180=0: the robot faces away
-      # from the dock, camera on the tag, and reverses in.
       staging_yaw_offset: 0.0
-      # REVISED 2026-09-24, empirically. Verified via /staging_pose during a
-      # real undock: observed staging x=-4.309 yaw=-179.96 from robot docked at
-      # x=-3.607 yaw=0.04 match EXACTLY if undockRobot()'s own
-      # "if(dock_backwards_) dock_pose.yaw += pi" does NOT take effect at
-      # runtime on this installed opennav_docking build (matches staging.x =
-      # robot.x + cos(0)*staging_x_offset and staging.yaw = robot.yaw + this
-      # offset, with NO +pi anywhere) -- contradicts the humble-branch GitHub
-      # source, so the apt package here is evidently built from something else.
-      # Trust the measurement, not the source read. See staging_x_offset below,
-      # fixed together -- both were calibrated for a flip that isn't happening.
-      # UNCONFUSE ME LATER: this looks identical to the pre-fix value and for
-      # a completely different reason. getStagingPose() has TWO call sites:
-      #   dockRobot()   -- dock->getStagingPose() with NO args, feeds Nav2's
-      #                    navigate_to_staging_pose goal ONLY. Every test here
-      #                    uses navigate_to_staging_pose:=false, so THIS value
-      #                    never affects docking at all -- verified 2026-09-24,
-      #                    docking succeeded with staging_yaw_offset at both
-      #                    0.0 and back to pi with IDENTICAL trajectories.
-      #   undockRobot()  -- dock->getStagingPose(dock_pose, frame) where
-      #                    dock_pose = robot's OWN current yaw (~0 when docked)
-      #                    + pi (undockRobot's own dock_backwards flip, a
-      #                    SEPARATE +pi from approachDock's, same file,
-      #                    different function). staging.yaw ends up
-      #                    (0 + pi + staging_yaw_offset). getCommandToPose()
-      #                    then calls the controller with backward=false (undock
-      #                    drives forward), where EgocentricPolarCoordinates
-      #                    does NOT add its own +pi (that only happens for
-      #                    backward=true). So staging.yaw must land on 0 for a
-      #                    straight, no-turn departure -- meaning
-      #                    staging_yaw_offset must be pi to cancel undockRobot's
-      #                    own +pi. That's this value.
+
       use_external_detection_pose: true
-      # CONFIRMED UPSTREAM BUG, 2026-09-23 — not this repo's config, not the
-      # camera, not the calibration. Isolated by setting this false for one
-      # test: docking_server then drives to the goal's static dock_pose with
-      # NO further camera/detection involvement at all (getStagingPose():
-      # "if (!use_external_detection_pose_) { dock_pose_.pose = pose; }" —
-      # opennav_docking humble branch). The approach still oscillated forever
-      # (yaw swinging -26deg..+49deg, y drifting to 0.26m, never settling) with
-      # zero vision in the loop, proving the divergence is in the control law.
-      #
-      # Root cause, read from nav2_graceful_controller's SmoothControlLaw
-      # (humble branch, calculateRegularVelocity): for backward=true it negates
-      # BOTH curvature and v (so their product w is unchanged) but never
-      # mirrors the heading-error terms (phi/delta), which stay referenced to
-      # the robot's FRONT. The correction is applied in the wrong rotational
-      # sense while reversing, so error grows instead of shrinking.
-      #
-      # docking_server itself is fine — it rotates the target pose by pi for
-      # dock_backwards (docking_server.cpp) exactly as documented. The bug is
-      # one level down, in the controller humble's opennav_docking depends on.
-      # A fix needs a patched SmoothControlLaw (or an overridden controller
-      # plugin) upstream; nothing in this repo can work around it in config.
       # /battery_state is published by the ESP hardware interface on A2
       # (RESP_BATTERY over CDC — voltage, current and SOC are live), so the
-      # "am I charging yet" check needs no new wiring.
+      # "am I charging yet" check needs no new wiring on real hardware.
       #
       # IN SIMULATION THERE IS NO BATTERY. Nothing publishes /battery_state
-      # under Gazebo, so the dock will drive the approach correctly and then sit
-      # in wait_charge_timeout before reporting failure. That is the expected
-      # sim outcome — set this false, or expect the final state to fail while
-      # the approach itself succeeds. docs/bonicbot_a2_docking.md's sim steps
-      # cover this.
+      # under Gazebo, so with this true the dock will drive the approach
+      # correctly and then sit in wait_charge_timeout before reporting
+      # failure — a real success reported as a failure. Launch docking.launch.py
+      # with use_battery_status:=false for sim runs; leave this true for the
+      # real robot.
       use_battery_status: true
       use_stall_detection: false
 
-      # 3.0, up from the 1.0 upstream default. Measured 2026-09-23: this sim's
-      # docking_camera sensor produces intermittent BLANK frames (single flat
-      # colour, no scene) while its parent link is actively rotating — not a
-      # permanent freeze, a per-frame flicker, real frames interleaved with
-      # blanks (Ogre2 render/pose-update race under gz-sim Fortress, not
-      # something this repo's config can fix). At the camera's own ~2.6 Hz,
-      # 2-3 consecutive blanks costs over a second and tripped detection loss
-      # every single approach at the 1.0s default. 3.0s comfortably tolerates
-      # the flicker while staying fast relative to dock_approach_timeout (30s)
-      # — a genuinely lost dock is still caught well before that ceiling.
+      # 3.0, up from the 1.0 upstream default. The docking camera produces
+      # occasional single-frame dropouts rather than a perfectly steady
+      # stream. At ~3-7 Hz, two or three consecutive dropped frames costs over
+      # a second and tripped detection loss at the 1.0s default on nearly
+      # every approach. 3.0s absorbs that while staying well inside
+      # dock_approach_timeout (30s), so a genuinely lost dock is still caught
+      # long before that ceiling.
       external_detection_timeout: 3.0
-      # Offset from the detected AprilTag pose to the dock's actual charging
-      # contact point. Zero is a PLACEHOLDER, not a measurement — the tag is
-      # never exactly at the contacts. Must be measured once a physical dock
-      # exists, and it is the number that decides whether the robot stops on
-      # the contacts or 18 cm short of them. (The reference's own values are
-      # -0.18 / -1.57 / -1.57 for its hardware — different hardware, so not
-      # transferable, but an indication of the magnitude involved.)
-      # SIM VALUES, measured 2026-09-23 — re-measure for real hardware.
+
+      # Offset from the detected AprilTag pose to the dock's actual approach
+      # target. y/roll/pitch are 0 — the tag is assumed centred on the dock
+      # face with no roll/pitch error. rotation_yaw and translation_x are the
+      # two values that matter and both were found empirically (see the
+      # staging_x/yaw_offset note above for why source-reading these was
+      # actively misleading on this build):
       #
-      # READ THIS BEFORE TOUCHING THE ROTATIONS. Two upstream facts make the
-      # obvious reasoning wrong, and both cost a crashed robot to find:
+      #   rotation_yaw: 1.5708 — swept against live /dock_pose readings
+      #   (0.0->dock_yaw +90, +1.5708->0, 3.14159->-90, -1.5708->+180) and
+      #   picked to land dock_pose_'s yaw at 0, which is what backward=true
+      #   motion needs for a straight-line approach with zero net turning.
       #
-      # 1. These params ONLY refine the live detection (getRefinedPose). They do
-      #    NOT affect the staging pose. getStagingPose() derives staging purely
-      #    from the yaw of the dock_pose IN THE ACTION GOAL. So a goal carrying
-      #    a raw AprilTag pose (optical convention, yaw ~90 deg here) stages the
-      #    robot 0.7 m SIDEWAYS and it drives off at right angles to the dock.
-      #    The goal's dock_pose must be a proper 2D dock pose: theta such that
-      #    staging_x_offset (negative = "forward of dock") lands in front of it.
-      #    For a dock whose face points +X, that is theta = pi.
+      #   translation_x: -0.08 gives a 73mm final standoff (rear of chassis to
+      #   dock face). Increase the magnitude (more negative) to stop further
+      #   in / closer contact; decrease it (toward 0 or positive) to stop
+      #   further out. It moves BOTH dock_pose_ and the control law's actual
+      #   target equally, so docking_threshold's 0.25m margin above is
+      #   unaffected by changes here.
       #
-      # 2. simple_charging_dock.cpp builds the rotation with
-      #        setEuler(pitch, roll, yaw)
-      #    but tf2's signature is setEuler(yaw, pitch, roll) — so these
-      #    parameter names do NOT map to the axes they are named after.
-      #    Do not derive these analytically. Measure them: publish a goal, read
-      #    /dock_pose and /staging_pose, and check the yaw you actually get.
-      #
-      # yaw=-1.5708 was found that way: it is the value that turns this dock's
-      # detected tag (yaw +90) into a dock frame with yaw +180. Swept and
-      # confirmed: 0.0->+90, +1.5708->0, 3.14159->-90, -1.5708->+180.
-      #
-      # translation_x: applied along the (now 180-deg) dock x-axis, so it moves
-      # the target in +X by -tx. The robot must stop with its REAR at the dock
-      # face, not base_link on the tag: chassis is 0.228 long (rear =
-      # base_link-0.114) and the sim dock face is at -3.800 with the tag at
-      # -3.810, giving a base_link target of -3.686, i.e. tx = -0.124.
+      # Real dock geometry (contact offset from the tag, mount roll/pitch)
+      # still needs measuring once a physical dock exists — these values are
+      # sim-calibrated for obstacle_world.sdf's apriltag_dock model.
       external_detection_translation_x: -0.08
-      # Was -0.13 (21mm final gap -- too tight, reads as a near-collision).
-      # translation_x shifts BOTH dock_pose_ and the controller's target
-      # equally (backward_projection's 0.25m gap between them is unaffected),
-      # so this is a pure standoff adjustment: +0.05 -> ~70mm final gap.
-      # docking_threshold (0.28, set for the 0.25m dock_pose_/target gap)
-      # stays valid unchanged.0
       external_detection_translation_y: 0.0
       external_detection_rotation_roll: 0.0
       external_detection_rotation_pitch: 0.0
       external_detection_rotation_yaw: 1.5708
       filter_coef: 0.1
 
-    # ── NO `docks:` DATABASE — this is the A2 divergence ─────────────────
+    # ── NO `docks:` DATABASE, EXCEPT ONE DUMMY ENTRY ─────────────────────
     #
-    # M1 records a static `home_dock` pose here, obtained by a five-step manual
-    # procedure (park on dock, start AMCL, echo /amcl_pose, convert quaternion
-    # to yaw, edit this file, rebuild, redeploy).
+    # The dock pose arrives WITH each action call instead: `use_dock_id: false`
+    # plus an explicit `dock_pose`, sourced from robot_app's LocationStore
+    # (docs/bonicbot_a2_docking.md §4) rather than a static entry here. That
+    # keeps docks per-map, re-recordable, and automatically dropped when their
+    # map is deleted.
     #
-    # A2 already ships that procedure as working code: robot_app's LocationStore
-    # records a pose from the live localized position and refuses if AMCL has
-    # not converged. So the dock pose arrives WITH the action call —
-    # `use_dock_id: false` plus an explicit `dock_pose` — and docks become
-    # per-map, re-recordable, and dropped automatically when their map is
-    # deleted. See docs/bonicbot_a2_docking.md §4.
-    #
-    # IF docking_server REFUSES TO CONFIGURE, this is the first thing to check.
-    # opennav_docking builds a dock database at on_configure() and may require
-    # either `docks:` or `dock_database:` to be set. The symptom is a failure
-    # during configure, on a line naming the dock database, followed by
-    # lifecycle_manager_docking never reaching active. The fallback is a single
-    # dummy entry that every call then bypasses — uncomment:
-    #
-    # CONFIRMED on hardware (obstacle_world.sdf sim run, 2026-09-23):
-    # docking_server refused to configure with no dock database at all —
-    #   "Dock database filepath nor dock parameters set. Unable to perform
-    #    docking actions."
-    # — so this is not a fallback for an edge case, it is REQUIRED every time.
+    # The dummy entry below exists only because opennav_docking's
+    # on_configure() unconditionally requires a non-empty dock database —
+    # confirmed on a real run: with no `docks:` at all, docking_server refused
+    # to configure ("Dock database filepath nor dock parameters set. Unable to
+    # perform docking actions."), and lifecycle_manager_docking never reached
+    # active. Every real DockRobot call still passes use_dock_id: false and
+    # supplies its own pose, bypassing this dummy entirely — do not treat it
+    # as a real dock or edit its pose expecting it to mean anything.
     docks: ['dummy_dock']
     dummy_dock:
       type: 'dock_charger'
       frame: 'odom'
       pose: [0.0, 0.0, 0.0]
-
-    # Do NOT treat the entry above as a real dock. It exists only to satisfy
-    # opennav_docking's on_configure(), which unconditionally requires a
-    # non-empty dock database — every DockRobot call still passes
-    # use_dock_id: false and supplies its own pose, bypassing this entirely.
 
 # apriltag_ros's apriltag_node (github.com/christianrauch/apriltag_ros) — CPU
 # AprilTag detector. Subscribes image_rect + camera_info, publishes /tf (child
@@ -229,21 +153,17 @@ docking_server:
 # docking.launch.py puts this node in the `docking_camera` namespace, so its
 # FQN is /docking_camera/apriltag_node. A bare `apriltag_node:` key does NOT
 # match it — ROS 2 silently ignores the whole block and every parameter below
-# falls back to the package default.
-#
-# Found on hardware 2026-09-23, and it is a nasty one because it half-works:
-# the default family is ALSO 36h11, so detection succeeded normally while the
-# default `size` of 1.0 m (against our real 0.10 m) scaled every pose by 10x —
-# the tag was reported 10.58 m away while sitting 0.84 m from the camera.
-# Nothing errors; the dock is simply in the wrong place.
+# falls back to the package default. Found the hard way: the default family is
+# ALSO 36h11, so detection kept working while the default `size` of 1.0m
+# (against the real 0.10m tag) scaled every pose by 10x with no error anywhere
+# — the tag reported 10.58m away while sitting 0.84m from the camera.
 #   Verify, don't assume:  ros2 param get /docking_camera/apriltag_node size
 /docking_camera/apriltag_node:
   ros__parameters:
     family: '36h11'
-    # 10 cm, against M1's 20 cm — and this is a decision, not a copy. The
-    # constraint is keeping the tag IN FRAME at close range, not detection
-    # range: a 20 cm tag overflows a 640x480 frame in the final centimetres of
-    # the approach, which is the worst possible moment to lose the pose. At
+    # The constraint is keeping the tag IN FRAME at close range, not detection
+    # range: a larger tag overflows a 640x480 frame in the final centimetres
+    # of the approach, which is the worst possible moment to lose the pose. At
     # 10 cm this camera detects comfortably past 2 m and stays fully framed
     # down to ~0.12 m. See docs/bonicbot_a2_docking.md §2.1.
     #
@@ -254,7 +174,7 @@ docking_server:
     # obstacle_world.sdf's apriltag_dock (see that model's tag_plate comment).
     size: 0.10
 
-# Our own node — scripts/dock_pose_publisher.py, copied verbatim from M1.
+# Our own node — scripts/dock_pose_publisher.py.
 dock_pose_publisher:
   ros__parameters:
     # Dock on whichever tag is seen first. Correct while there is exactly one

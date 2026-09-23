@@ -10,9 +10,9 @@
 // verbatim — that document is authoritative where it and the CDC spec disagree
 // (the CDC spec's CMD_SERVO_CONTROL table predates the unified firmware).
 //
-// Unlike M1 — where the Jetson drives ODrive/QDD/servos directly over CAN and
-// the ESP only relays IMU/Wi-Fi — on A2 the ESP32 IS the motion controller.
-// This host therefore drives the full motion command set, not a relay subset.
+// On A2 the ESP32 IS the motion controller (wheels, all seven servos, IMU,
+// battery), not a relay — this host therefore drives the full motion command
+// set over the one CDC link.
 
 #ifndef BONICBOT_A2_HARDWARE__CDC_PROTOCOL_HPP_
 #define BONICBOT_A2_HARDWARE__CDC_PROTOCOL_HPP_

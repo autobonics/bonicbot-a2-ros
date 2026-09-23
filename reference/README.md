@@ -11,9 +11,8 @@ They are parked here on the way to `bonicOS-robot-app`.
 
 ## Why they are here and not deleted
 
-Orchestration belongs to `bonicOS-robot-app`, which is shared with M1 and already
-carries a `ROBOT_SERIES=A` config. M1 did the same thing with its own
-`robot_manager.py`.
+Orchestration belongs to `bonicOS-robot-app`, which already carries a
+`ROBOT_SERIES=A` config.
 
 But robot_app does **not** yet implement everything these provided. No equivalent was
 found for:

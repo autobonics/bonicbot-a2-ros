@@ -63,8 +63,8 @@ def generate_launch_description():
         # ── docking addon, mode A of docs/bonicbot_a2_docking.md §5 ──
         #
         # Bundles the docking pipeline into the nav session: detector chain and
-        # docking_server up for as long as navigation is. Simple, M1-shaped,
-        # and the right thing for bring-up and for simulation.
+        # docking_server up for as long as navigation is. Simple, and the right
+        # thing for bring-up and for simulation.
         #
         # Mode B — robot_app spawning docking.launch.py per dock attempt and
         # tearing it down on the result — is the target on real hardware,
@@ -85,9 +85,9 @@ def generate_launch_description():
                         'Set false in simulation, which has no battery'),
         DeclareLaunchArgument(
             'map_name', default_value='bonicbot_a2_map.yaml',
-            # Extension INCLUDED, matching bonicbot_m1_nav. robot_app's
-            # NavModeManager passes `map_name:=<name>.yaml`, so appending
-            # ".yaml" here would look for "<name>.yaml.yaml".
+            # Extension INCLUDED: robot_app's NavModeManager passes
+            # `map_name:=<name>.yaml`, so appending ".yaml" here would look for
+            # "<name>.yaml.yaml".
             description='Map file name inside maps_dir (including .yaml)'),
     ]
 

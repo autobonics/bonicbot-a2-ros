@@ -170,8 +170,8 @@ def generate_launch_description():
                 # load_controller call, and that spawner then dies with exit
                 # code 1 leaving its controller LOADED BUT NEVER CONFIGURED:
                 # the node exists and the graph looks healthy, but it has no
-                # command subscription. Bit M1 on diff_cont, where it silently
-                # made the base undrivable.
+                # command subscription — a controller that looks fine and
+                # silently ignores every command sent to it.
                 '--service-call-timeout', '60',
             ],
             parameters=[{'use_sim_time': False}],

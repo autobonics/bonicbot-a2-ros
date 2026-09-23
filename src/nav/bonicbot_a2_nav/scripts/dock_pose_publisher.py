@@ -15,12 +15,8 @@ no pose field, only id/family/corners/homography — pose is broadcast on
 detections array only to know which tag was seen and when, then looks up
 that frame's pose via tf2 rather than reading it out of the message.
 
-Copied from bonicbot_m1_nav, with ONE divergence: _tag_prefixed() below,
-which M1 does not have and needs. Otherwise identical. This node is
-series-agnostic — it touches no hardware, no A2- or M1-specific topic, and no
-parameter that differs between them. Only the CMakeLists install line and the
-launch file's `package=` differ. If it needs fixing, fix it in both.
-See docs/bonicbot_a2_docking.md §3.
+This node touches no hardware and no A2-specific topic — see
+docs/bonicbot_a2_docking.md §3.
 
 ROS parameters:
   use_first_detection  bool    default: True       — dock on whichever tag is seen first
@@ -55,8 +51,7 @@ def _tag_prefixed(family: str) -> str:
     naming a frame nobody recognises.
 
     Found on hardware 2026-09-23. Normalising both sides makes this work on
-    either version. bonicbot_m1_nav carries the unfixed original and will hit
-    the same wall whenever its apriltag_ros is upgraded.
+    either version.
     """
     return family if family.startswith('tag') else f'tag{family}'
 

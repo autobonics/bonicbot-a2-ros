@@ -16,9 +16,8 @@ Pipeline:
   detections + /tf --[dock_pose_publisher.py]--> detected_dock_pose
   detected_dock_pose --[docking_server]--> DockRobot / UndockRobot
 
-Structure mirrors bonicbot_m1_nav/launch/docking.launch.py node for node. The
-only A2 difference is in docking.yaml, not here: the dock's pose arrives with
-the action call rather than from a `docks:` database (§4).
+The dock's pose arrives with the action call rather than from a static
+`docks:` database (§4), keeping this launch file itself pipeline-only.
 
 ── Lifecycle: this is designed to be started and stopped, not left running ──
 
@@ -29,7 +28,7 @@ happens twice a day is not free.
 
 So this file is written to work BOTH ways, with no second code path:
   mode A  navigation.launch.py use_docking:=true  — up for the whole session.
-          Simplest, M1-shaped, and the right thing for bring-up.
+          Simplest, and the right thing for bring-up.
   mode B  robot_app spawns this standalone per dock attempt and tears it down
           on the result. The recommended target.
 
