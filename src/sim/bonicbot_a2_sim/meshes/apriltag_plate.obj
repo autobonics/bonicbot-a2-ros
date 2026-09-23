@@ -1,0 +1,48 @@
+# AprilTag plate for the simulated dock — a single textured quad.
+#
+# WHY A MESH AND NOT AN SDF <box>: a box visual in gz-sim gets the material on
+# every face with per-face UVs this file cannot control, and AprilTag detection
+# is invariant to ROTATION but NOT to MIRRORING. A mirrored tag does not decode
+# as a different id — it does not decode at all, and the failure looks exactly
+# like "the detector isn't working". An explicit quad with authored UVs removes
+# that guesswork.
+#
+# GEOMETRY: 0.125 m square, in the Y-Z plane, facing +X (normal 1 0 0).
+#
+# The 0.125 is not arbitrary. apriltag-imgs' tag36h11 PNGs are 10x10 px: a 6x6
+# data grid, plus a 1-cell BLACK border (making 8x8), plus a 1-cell white quiet
+# zone (making 10x10). apriltag_node's `size` parameter is the edge length of
+# the BLACK BORDER, not of the image. So:
+#
+#     0.125 m plate x (8/10) = 0.100 m black border
+#
+# which is exactly docking.yaml's `size: 0.10`. Change one and you must change
+# the other, or every pose is scaled wrong while the tag still detects — the
+# quiet failure that parameter is famous for.
+#
+# WINDING / UV: front face is counter-clockwise seen from +X. Looking along -X
+# with +Z up, screen-right is -Y, so image bottom-left maps to (y=+h, z=-h).
+# v=0 is taken as the BOTTOM of the image (Blender/assimp convention).
+#
+# IF THE TAG IS NEVER DETECTED IN SIM, suspect mirroring before anything else:
+#   convert tag36h11_00000.png -flop tag36h11_00000.png
+# and restart Gazebo. That is a 30-second check and it rules out the one
+# convention this file cannot verify without a renderer.
+
+mtllib apriltag_plate.mtl
+o apriltag_plate
+usemtl tag
+
+v 0.0  0.0625 -0.0625
+v 0.0 -0.0625 -0.0625
+v 0.0 -0.0625  0.0625
+v 0.0  0.0625  0.0625
+
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+
+vn 1.0 0.0 0.0
+
+f 1/1/1 2/2/2 3/3/3 4/4/4

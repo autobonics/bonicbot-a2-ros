@@ -26,6 +26,27 @@
        source split in CLAUDE.md is unaffected. -->
   <exec_depend>bonicbot_a2_hardware</exec_depend>
 
+  <!-- docking addon (docking.launch.py) — see
+       docs/bonicbot_a2_docking.md. Declared unconditionally because
+       package.xml cannot be conditional; on a robot without the addon these
+       are installed and never launched.
+
+       VERIFY THESE INSTALL BEFORE RELYING ON THEM. opennav_docking entered
+       Nav2 after Humble, so `ros-humble-opennav-docking` is not guaranteed to
+       exist on the robot's arm64 sources:
+
+         apt-cache policy ros-humble-opennav-docking ros-humble-apriltag-ros \
+                          ros-humble-image-proc ros-humble-usb-cam
+
+       A missing binary here changes the plan, not just the build. M1 carries
+       exactly this as an unresolved open item — do not inherit it silently. -->
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>apriltag_ros</exec_depend>
+  <exec_depend>apriltag_msgs</exec_depend>
+  <exec_depend>image_proc</exec_depend>
+  <!-- dock_pose_publisher.py's tf2 lookup -->
+  <exec_depend>tf2_ros</exec_depend>
+
   <!-- teleop -->
   <exec_depend>joy</exec_depend>
   <exec_depend>teleop_twist_joy</exec_depend>

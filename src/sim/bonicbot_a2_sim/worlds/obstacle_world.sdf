@@ -1070,6 +1070,89 @@
       </link>
     </model>
 
+    <!-- ── docking station ─────────────────────────────────────────────────
+         Mounted flat against wall_outer_west_main's inner face, at the west end
+         of the main hall. Addon testing only — see
+         docs/bonicbot_a2_docking.md §Phase 4.
+
+         WHY HERE. Three things had to line up:
+
+           * Against a wall, because that is where a charging dock actually
+             lives, and a dock standing in open floor lets a wrong approach
+             angle succeed by luck.
+           * Directly BEHIND the spawn point. The robot spawns at the origin
+             facing +X and the docking camera is REAR-mounted
+             (docking_camera.xacro), so it looks along -X. A dock anywhere ahead
+             of the robot is a dock the robot cannot see without turning first.
+             This wall's inner face is at x = -3.85, y = 0 is within its span,
+             and the robot reverses straight at it.
+           * On a clear lane. Nothing in the hall furniture sits inside
+             x -4.2..0.3, y -1.2..1.2, so the approach is unobstructed and a
+             failed dock is a docking failure, not a chair.
+
+         NOTE ON HEIGHT. This world's floors are raised 0.05 m slabs, not the
+         ground plane — so the robot stands at z = 0.05, which puts the docking
+         camera at z ~ 0.166 (0.116 above whatever it stands on). The tag centre
+         is therefore at 0.17 in world terms, NOT the 0.12 that the camera link
+         carries in the `chassis` frame. Move this model to a world with a flat
+         ground plane and the tag ends up 50 mm high.
+
+         There is no battery in simulation, so SimpleChargingDock's charge
+         confirmation can never be satisfied — launch docking with
+         use_battery_status:=false. See config/docking.yaml.
+    -->
+    <model name="apriltag_dock">
+      <static>true</static>
+      <!-- Model origin sits ON the wall's inner face (x = -3.850; the wall
+           itself spans -4.000..-3.850). Everything below therefore extends in
+           +X, INTO the room. Negative offsets here bury the dock inside the
+           wall, where it is both invisible and un-hittable. -->
+      <pose>-3.85 0 0.05 0 0 0</pose>
+      <link name="body">
+        <!-- Backing body, flush to the wall. Tall enough for the LiDAR
+             (~0.18 m above the floor) to see, so the dock appears in the
+             costmap instead of being an invisible obstacle the planner routes
+             straight through. -->
+        <visual name="backing">
+          <pose>0.025 0 0.15 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.30 0.30</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.25 0.25 0.28 1</ambient>
+            <diffuse>0.25 0.25 0.28 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        <collision name="backing">
+          <pose>0.025 0 0.15 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.30 0.30</size>
+            </box>
+          </geometry>
+        </collision>
+
+        <!-- The tag: a textured quad, 2 mm clear of the backing face to avoid
+             z-fighting. Visual only. 0.125 m plate whose black border spans
+             0.100 m, matching docking.yaml's `size: 0.10` — the arithmetic is
+             in meshes/apriltag_plate.obj.
+
+             The texture is NOT in git. Run scripts/make_apriltag_texture.sh and
+             rebuild, or this renders plain white and nothing ever detects,
+             which reads as a broken detector rather than a missing file. -->
+        <visual name="tag_plate">
+          <pose>0.052 0 0.12 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <uri>package://bonicbot_a2_sim/meshes/apriltag_plate.obj</uri>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
 
   </world>
 </sdf>

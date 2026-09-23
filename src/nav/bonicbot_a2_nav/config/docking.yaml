@@ -1,0 +1,134 @@
+# BonicBot A2 docking — Nav2 Docking Server + AprilTag pose detection.
+#
+# ADDON ONLY. Loaded by docking.launch.py, which only runs on robots carrying
+# the docking addon. Full design: docs/bonicbot_a2_docking.md
+#
+# Mirrors bonicbot_m1_nav/config/docking.yaml, which in turn mirrors the
+# reference Nav2's own docking tutorial points to (NVIDIA-ISAAC-ROS/nova_carter,
+# nova_carter_docking.yaml). ONE structural difference from both, and it is the
+# centre of the A2 design: there is no `docks:` database here. See below.
+
+docking_server:
+  ros__parameters:
+    # use_sim_time is deliberately NOT set here. docking.launch.py passes it
+    # AFTER this file, so a value here would be silently overridden and reading
+    # it would mislead. Pass use_sim_time:=true to the launch file in sim.
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: "base_link"
+    # odom, not map: the approach is a short, continuous, closed-loop move and
+    # odom is smooth over that distance, where map jumps on every AMCL update.
+    # A jump of a few cm during the final approach is a jump in the commanded
+    # path. Must match dock_pose_publisher's fixed_frame below.
+    fixed_frame: "odom"
+    # The docking camera is rear-mounted, so the robot reverses onto the dock.
+    # Same as M1. See docking_camera.xacro's joint for the geometry.
+    dock_backwards: true
+    dock_prestaging_tolerance: 0.5
+
+    dock_plugins: ['dock_charger']
+    dock_charger:
+      plugin: 'opennav_docking::SimpleChargingDock'
+      # 5 cm — the reference implementation's own default. NOT yet validated
+      # against A2's charging-contact geometry.
+      docking_threshold: 0.05
+      # How far out the robot stages before the final approach. Upstream
+      # default; re-measure once a real dock exists.
+      staging_x_offset: -0.7
+      use_external_detection_pose: true
+      # /battery_state is published by the ESP hardware interface on A2
+      # (RESP_BATTERY over CDC — voltage, current and SOC are live), so the
+      # "am I charging yet" check needs no new wiring.
+      #
+      # IN SIMULATION THERE IS NO BATTERY. Nothing publishes /battery_state
+      # under Gazebo, so the dock will drive the approach correctly and then sit
+      # in wait_charge_timeout before reporting failure. That is the expected
+      # sim outcome — set this false, or expect the final state to fail while
+      # the approach itself succeeds. docs/bonicbot_a2_docking.md's sim steps
+      # cover this.
+      use_battery_status: true
+      use_stall_detection: false
+
+      external_detection_timeout: 1.0
+      # Offset from the detected AprilTag pose to the dock's actual charging
+      # contact point. Zero is a PLACEHOLDER, not a measurement — the tag is
+      # never exactly at the contacts. Must be measured once a physical dock
+      # exists, and it is the number that decides whether the robot stops on
+      # the contacts or 18 cm short of them. (The reference's own values are
+      # -0.18 / -1.57 / -1.57 for its hardware — different hardware, so not
+      # transferable, but an indication of the magnitude involved.)
+      external_detection_translation_x: 0.0
+      external_detection_translation_y: 0.0
+      external_detection_rotation_roll: 0.0
+      external_detection_rotation_pitch: 0.0
+      external_detection_rotation_yaw: 0.0
+      filter_coef: 0.1
+
+    # ── NO `docks:` DATABASE — this is the A2 divergence ─────────────────
+    #
+    # M1 records a static `home_dock` pose here, obtained by a five-step manual
+    # procedure (park on dock, start AMCL, echo /amcl_pose, convert quaternion
+    # to yaw, edit this file, rebuild, redeploy).
+    #
+    # A2 already ships that procedure as working code: robot_app's LocationStore
+    # records a pose from the live localized position and refuses if AMCL has
+    # not converged. So the dock pose arrives WITH the action call —
+    # `use_dock_id: false` plus an explicit `dock_pose` — and docks become
+    # per-map, re-recordable, and dropped automatically when their map is
+    # deleted. See docs/bonicbot_a2_docking.md §4.
+    #
+    # IF docking_server REFUSES TO CONFIGURE, this is the first thing to check.
+    # opennav_docking builds a dock database at on_configure() and may require
+    # either `docks:` or `dock_database:` to be set. The symptom is a failure
+    # during configure, on a line naming the dock database, followed by
+    # lifecycle_manager_docking never reaching active. The fallback is a single
+    # dummy entry that every call then bypasses — uncomment:
+    #
+    # docks: ['dummy_dock']
+    # dummy_dock:
+    #   type: 'dock_charger'
+    #   frame: 'odom'
+    #   pose: [0.0, 0.0, 0.0]
+    #
+    # Do NOT treat a dummy entry as a real dock. It exists only to satisfy
+    # initialization; every DockRobot call passes use_dock_id: false and
+    # supplies its own pose.
+
+# apriltag_ros's apriltag_node (github.com/christianrauch/apriltag_ros) — CPU
+# AprilTag detector. Subscribes image_rect + camera_info, publishes /tf (child
+# frame tag<family>:<id>) and detections (apriltag_msgs/AprilTagDetectionArray,
+# with NO embedded pose — which is why dock_pose_publisher.py exists).
+apriltag_node:
+  ros__parameters:
+    family: '36h11'
+    # 10 cm, against M1's 20 cm — and this is a decision, not a copy. The
+    # constraint is keeping the tag IN FRAME at close range, not detection
+    # range: a 20 cm tag overflows a 640x480 frame in the final centimetres of
+    # the approach, which is the worst possible moment to lose the pose. At
+    # 10 cm this camera detects comfortably past 2 m and stays fully framed
+    # down to ~0.12 m. See docs/bonicbot_a2_docking.md §2.1.
+    #
+    # MUST equal the printed tag's BLACK BORDER edge length — not the paper
+    # size, not the white margin. Wrong here and every pose is scaled wrong,
+    # with no error anywhere: the tag is detected, the distance is simply
+    # false. In sim, this must match the textured plate's geometry in
+    # obstacle_world.sdf's apriltag_dock (see that model's tag_plate comment).
+    size: 0.10
+
+# Our own node — scripts/dock_pose_publisher.py, copied verbatim from M1.
+dock_pose_publisher:
+  ros__parameters:
+    # Dock on whichever tag is seen first. Correct while there is exactly one
+    # tag in the environment, which is the case today. Set false and fill in
+    # dock_tag_id once a site has more than one dock.
+    use_first_detection: true
+    dock_tag_family: 'tag36h11'
+    dock_tag_id: 0
+    # MUST match docking_server's fixed_frame above — this is the frame the
+    # PoseStamped is published in, and docking_server assumes they agree.
+    fixed_frame: 'odom'

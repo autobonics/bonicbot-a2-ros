@@ -7,6 +7,15 @@ exist here — ros2_control.xacro's sim_mode branch binds GazeboSimSystem instea
 
 SLAM / navigation launch separately from bonicbot_a2_nav with use_sim_time:=true,
 exactly as on the real robot.
+
+Docking:
+    ros2 launch bonicbot_a2_sim sim.launch.py \
+        world:=obstacle_world.sdf use_docking:=true
+
+adds the rear docking camera to the model and bridges it out of Gazebo. The
+detector chain and docking_server come from bonicbot_a2_nav's docking.launch.py,
+not from here — this package owns the simulated robot, not the pipeline.
+See docs/bonicbot_a2_docking.md.
 """
 
 import os
@@ -28,18 +37,37 @@ def generate_launch_description():
     hardware_share = get_package_share_directory('bonicbot_a2_hardware')
     nav_share = get_package_share_directory('bonicbot_a2_nav')
 
-    # Gazebo resolves package://bonicbot_a2_description/meshes/... by searching
-    # this path, so it must point at the DIRECTORY CONTAINING the description
-    # package's share dir, not the share dir itself.
-    description_share_parent = os.path.dirname(description_share)
+    sim_share = get_package_share_directory('bonicbot_a2_sim')
+
+    # Gazebo resolves package://<pkg>/... by stripping the scheme and searching
+    # these paths, so each entry must be the DIRECTORY CONTAINING a package's
+    # share dir, not the share dir itself.
+    #
+    # BOTH packages are listed, not just the description one. Without an
+    # isolated (non-merged) colcon install each package has its own prefix, so
+    # dirname(description_share) does not contain bonicbot_a2_sim — and
+    # obstacle_world.sdf's package://bonicbot_a2_sim/meshes/apriltag_plate.obj
+    # then silently fails to load. Gazebo does not error on an unresolvable
+    # visual mesh; it draws nothing, so the dock's tag is simply absent and the
+    # detector looks broken.
+    #
+    # Any pre-existing value is preserved: a dev with their own models on the
+    # path should not lose them by launching this.
+    resource_paths = [os.path.dirname(description_share),
+                      os.path.dirname(sim_share)]
+
+    def _resource_path(existing_var):
+        existing = os.environ.get(existing_var, '')
+        parts = resource_paths + ([existing] if existing else [])
+        return os.pathsep.join(parts)
 
     set_ign_resource_path = SetEnvironmentVariable(
         name='IGN_GAZEBO_RESOURCE_PATH',
-        value=description_share_parent,
+        value=_resource_path('IGN_GAZEBO_RESOURCE_PATH'),
     )
     set_gz_resource_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
-        value=description_share_parent,
+        value=_resource_path('GZ_SIM_RESOURCE_PATH'),
     )
 
     world_arg = DeclareLaunchArgument(
@@ -53,6 +81,36 @@ def generate_launch_description():
         description='Use a real webcam via v4l2_camera (True) or the Gazebo camera bridge (False)',
     )
     use_real_camera = LaunchConfiguration('use_real_camera')
+
+    # ── docking addon in simulation ──────────────────────────────────────
+    #
+    # The whole docking pipeline is testable here BEFORE the addon hardware
+    # exists, and that is worth more than it sounds: every bug found in sim is
+    # one not found while a robot is reversing into furniture.
+    #
+    # Default from the env so `export DOCKING_ADDON=1` behaves the same as it
+    # does on a real robot, and so a plain sim run is unchanged.
+    use_docking_arg = DeclareLaunchArgument(
+        'use_docking',
+        default_value=os.environ.get('DOCKING_ADDON', 'false'),
+        description='Add the rear docking camera to the model and bridge it out '
+                    'of Gazebo. The dock itself lives in obstacle_world.sdf',
+    )
+    use_docking = LaunchConfiguration('use_docking')
+
+    # Sets the SAME env var the real robot uses, so rsp.launch.py's xacro call
+    # includes docking_camera.xacro and the model actually carries the camera.
+    # Passing use_docking:=true without this would bridge topics that the
+    # simulated robot never publishes.
+    #
+    # ORDER MATTERS: this must be visited before `rsp`, because the xacro
+    # Command that reads $(optenv DOCKING_ADDON false) is evaluated when the
+    # robot_state_publisher node's parameters are resolved. It is first in the
+    # returned LaunchDescription for that reason — do not reorder it below rsp.
+    set_docking_env = SetEnvironmentVariable(
+        name='DOCKING_ADDON', value='1',
+        condition=IfCondition(use_docking),
+    )
 
     world_path = PathJoinSubstitution([
         FindPackageShare('bonicbot_a2_sim'), 'worlds', LaunchConfiguration('world'),
@@ -129,6 +187,39 @@ def generate_launch_description():
         condition=UnlessCondition(use_real_camera),
     )
 
+    # ── docking camera bridges ───────────────────────────────────────────
+    #
+    # Two separate bridges for one camera, matching the face camera above:
+    # ros_gz_image for the image (it handles the image payload efficiently) and
+    # parameter_bridge for camera_info (ros_gz_image does not carry it).
+    #
+    # BOTH are required, and camera_info is the one that looks optional and is
+    # not: rectify_node needs the intrinsics to undistort, and apriltag_node
+    # derives the tag's DISTANCE from them. Bridge only the image and the
+    # detector sits waiting on a camera_info that never arrives — no error, just
+    # no detections.
+    #
+    # Unlike the real robot, sim needs no calibration file: Gazebo's camera
+    # publishes camera_info that exactly describes its own pinhole model, which
+    # is the one case where the intrinsics are perfect for free.
+    docking_image_bridge = Node(
+        package='ros_gz_image',
+        executable='image_bridge',
+        name='gz_bridge_docking_camera',
+        arguments=['/docking_camera/image_raw'],
+        output='screen',
+        condition=IfCondition(use_docking),
+    )
+
+    docking_camera_info_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='gz_bridge_docking_camera_info',
+        arguments=['/docking_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
+        output='screen',
+        condition=IfCondition(use_docking),
+    )
+
     # Real webcam instead of the simulated one — publishes the same
     # /face_camera/image_raw, so vision_pipeline.py cannot tell the difference.
     real_camera = IncludeLaunchDescription(
@@ -168,6 +259,9 @@ def generate_launch_description():
         set_gz_resource_path,
         world_arg,
         use_real_camera_arg,
+        use_docking_arg,
+        # Before rsp — see the comment on set_docking_env.
+        set_docking_env,
         rsp,
         joystick,
         twist_mux,
@@ -176,6 +270,8 @@ def generate_launch_description():
         bridge,
         image_bridge,
         camera_info_bridge,
+        docking_image_bridge,
+        docking_camera_info_bridge,
         real_camera,
         spawner('diff_cont'),
         spawner('joint_broad'),

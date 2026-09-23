@@ -11,6 +11,21 @@ FROM ros:humble-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# The last four packages are the DOCKING ADDON. They are installed into every
+# image, not just addon-fitted robots: the image is one artifact for the fleet,
+# and an installed driver that nothing launches costs disk, not CPU.
+#
+# opennav_docking entered Nav2 AFTER Humble, so `ros-humble-opennav-docking`
+# may not exist on the arm64 sources this image builds against — in which case
+# THIS BUILD FAILS LOUDLY, which is the intended outcome. Check before relying
+# on it:
+#
+#   apt-cache policy ros-humble-opennav-docking ros-humble-apriltag-ros \
+#                    ros-humble-image-proc ros-humble-usb-cam
+#
+# If it is unavailable, the fix is a source build of opennav_docking in the
+# workspace (or a newer base image), not dropping the feature. See
+# docs/bonicbot_a2_docking.md §6 Phase 2.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-ros2-control \
       ros-humble-ros2-controllers \
@@ -31,6 +46,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-joy \
       ros-humble-teleop-twist-joy \
       ros-humble-cv-bridge \
+      ros-humble-usb-cam \
+      ros-humble-image-proc \
+      ros-humble-apriltag-ros \
+      ros-humble-opennav-docking \
       python3-colcon-common-extensions \
       python3-opencv \
       v4l-utils \

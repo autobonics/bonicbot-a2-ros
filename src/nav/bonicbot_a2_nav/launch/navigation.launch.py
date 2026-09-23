@@ -10,6 +10,10 @@ both publish map->odom, the transform tree gets two parents for the same frame,
 and the robot's pose flips between their estimates.
 
 Map storage follows BONICBOT_MAPS_DIR (default /maps, the Docker volume mount).
+
+`use_docking` additionally starts the docking pipeline, on robots carrying the
+docking addon only. It defaults from $DOCKING_ADDON so that a fitted robot needs
+no extra argument and an unfitted one can never start it.
 """
 
 import os
@@ -17,8 +21,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import UnlessCondition
+from launch.actions import (DeclareLaunchArgument, GroupAction,
+                            IncludeLaunchDescription)
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
@@ -54,6 +60,29 @@ def generate_launch_description():
             # and bare-metal dev exports BONICBOT_MAPS_DIR at the workspace.
             default_value=os.environ.get('BONICBOT_MAPS_DIR', '/maps'),
             description='Directory holding saved maps'),
+        # ── docking addon, mode A of docs/bonicbot_a2_docking.md §5 ──
+        #
+        # Bundles the docking pipeline into the nav session: detector chain and
+        # docking_server up for as long as navigation is. Simple, M1-shaped,
+        # and the right thing for bring-up and for simulation.
+        #
+        # Mode B — robot_app spawning docking.launch.py per dock attempt and
+        # tearing it down on the result — is the target on real hardware,
+        # because the detector chain is real CPU on an RPi4 that has none
+        # spare. Same launch file either way; this argument is the only
+        # difference.
+        #
+        # Defaults from the env so an addon-fitted robot gets it without anyone
+        # passing an argument, and a plain A2 never starts nodes for hardware
+        # it does not have. Same flag the URDF and hardware.launch.py read.
+        DeclareLaunchArgument(
+            'use_docking', default_value=os.environ.get('DOCKING_ADDON', 'false'),
+            description='Start the docking pipeline (AprilTag detector + '
+                        'docking_server). Defaults from $DOCKING_ADDON'),
+        DeclareLaunchArgument(
+            'use_battery_status', default_value='true',
+            description='Docking: require /battery_state to confirm charging. '
+                        'Set false in simulation, which has no battery'),
         DeclareLaunchArgument(
             'map_name', default_value='bonicbot_a2_map.yaml',
             # Extension INCLUDED, matching bonicbot_m1_nav. robot_app's
@@ -163,4 +192,21 @@ def generate_launch_description():
         ),
     ])
 
-    return LaunchDescription(declare_args + [localization, navigation])
+    # ── docking: only with the addon ─────────────────────────────
+    # use_sim_time is forwarded, not re-derived: docking_server and the detector
+    # chain must share the nav stack's clock or the tag pose and the robot pose
+    # are stamped on different timelines and every tf2 lookup fails.
+    docking = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [os.path.join(pkg_share, 'launch', 'docking.launch.py')]),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            # Forwarded so a sim session can switch it off in one place —
+            # Gazebo has no battery, so the charge confirmation can never
+            # succeed. See docking.launch.py.
+            'use_battery_status': LaunchConfiguration('use_battery_status'),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration('use_docking')),
+    )
+
+    return LaunchDescription(declare_args + [localization, navigation, docking])

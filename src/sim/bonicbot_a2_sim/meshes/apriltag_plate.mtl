@@ -1,0 +1,21 @@
+# Material for apriltag_plate.obj.
+#
+# map_Kd resolves RELATIVE TO THIS FILE, so the PNG sits in this same meshes/
+# directory rather than under materials/ — that keeps the texture out of
+# Gazebo's resource-path resolution entirely, which is one less thing to get
+# wrong.
+#
+# The PNG is NOT in git. Generate it with:
+#     scripts/make_apriltag_texture.sh
+# Without it the plate renders plain white and nothing detects — the world
+# still loads, so a missing texture looks like a detection bug. Run the script.
+#
+# Ks 0 and a flat illum: an AprilTag is a matte printed sheet. A specular
+# highlight across it is a real way to lose detections, in sim as on a robot.
+newmtl tag
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+d 1.0
+illum 1
+map_Kd tag36h11_00000.png
