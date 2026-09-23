@@ -89,15 +89,21 @@ docking_server:
     # lifecycle_manager_docking never reaching active. The fallback is a single
     # dummy entry that every call then bypasses — uncomment:
     #
-    # docks: ['dummy_dock']
-    # dummy_dock:
-    #   type: 'dock_charger'
-    #   frame: 'odom'
-    #   pose: [0.0, 0.0, 0.0]
-    #
-    # Do NOT treat a dummy entry as a real dock. It exists only to satisfy
-    # initialization; every DockRobot call passes use_dock_id: false and
-    # supplies its own pose.
+    # CONFIRMED on hardware (obstacle_world.sdf sim run, 2026-09-23):
+    # docking_server refused to configure with no dock database at all —
+    #   "Dock database filepath nor dock parameters set. Unable to perform
+    #    docking actions."
+    # — so this is not a fallback for an edge case, it is REQUIRED every time.
+    docks: ['dummy_dock']
+    dummy_dock:
+      type: 'dock_charger'
+      frame: 'odom'
+      pose: [0.0, 0.0, 0.0]
+
+    # Do NOT treat the entry above as a real dock. It exists only to satisfy
+    # opennav_docking's on_configure(), which unconditionally requires a
+    # non-empty dock database — every DockRobot call still passes
+    # use_dock_id: false and supplies its own pose, bypassing this entirely.
 
 # apriltag_ros's apriltag_node (github.com/christianrauch/apriltag_ros) — CPU
 # AprilTag detector. Subscribes image_rect + camera_info, publishes /tf (child
