@@ -24,10 +24,11 @@
 # with +Z up, screen-right is -Y, so image bottom-left maps to (y=+h, z=-h).
 # v=0 is taken as the BOTTOM of the image (Blender/assimp convention).
 #
-# IF THE TAG IS NEVER DETECTED IN SIM, suspect mirroring before anything else:
+# IF THE TAG IS NEVER DETECTED IN SIM, suspect mirroring before anything else —
+# flip the committed texture horizontally and restart Gazebo:
 #   convert tag36h11_00000.png -flop tag36h11_00000.png
-# and restart Gazebo. That is a 30-second check and it rules out the one
-# convention this file cannot verify without a renderer.
+# That is a 30-second check, and it rules out the one convention this file
+# cannot verify without a renderer. If it fixes it, commit the flipped PNG.
 
 mtllib apriltag_plate.mtl
 o apriltag_plate

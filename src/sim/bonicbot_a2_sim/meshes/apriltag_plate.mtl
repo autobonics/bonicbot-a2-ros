@@ -5,10 +5,21 @@
 # Gazebo's resource-path resolution entirely, which is one less thing to get
 # wrong.
 #
-# The PNG is NOT in git. Generate it with:
-#     scripts/make_apriltag_texture.sh
-# Without it the plate renders plain white and nothing detects — the world
-# still loads, so a missing texture looks like a detection bug. Run the script.
+# tag36h11_00000.png IS COMMITTED, next to this file. It is tag36h11 id 0 from
+# AprilRobotics/apriltag-imgs — the family's own dataset — upscaled x100 with
+# NEAREST-NEIGHBOUR filtering to 1000x1000 (4 KB).
+#
+# Do not redraw or re-export it. An AprilTag is not a drawable pattern: the
+# cells encode a specific 36-bit codeword per id, so an invented pattern is not
+# a tag and simply never decodes. To change id, take the matching PNG from that
+# repo and upscale it the same way:
+#
+#   python3 -c "from PIL import Image; i=Image.open('tag36_11_00007.png').convert('RGB'); \
+#               i.resize((1000,1000), Image.NEAREST).save('tag36h11_00007.png')"
+#
+# The upscale must be nearest-neighbour. A smoothing filter softens the cell
+# edges, and soft edges cost detection RANGE — a quiet failure that looks like a
+# camera or lighting problem.
 #
 # Ks 0 and a flat illum: an AprilTag is a matte printed sheet. A specular
 # highlight across it is a real way to lose detections, in sim as on a robot.

@@ -1140,9 +1140,9 @@
              0.100 m, matching docking.yaml's `size: 0.10` — the arithmetic is
              in meshes/apriltag_plate.obj.
 
-             The texture is NOT in git. Run scripts/make_apriltag_texture.sh and
-             rebuild, or this renders plain white and nothing ever detects,
-             which reads as a broken detector rather than a missing file. -->
+             The texture (meshes/tag36h11_00000.png) is committed. If this
+             plate renders plain white, the mesh URI failed to resolve — check
+             GZ_SIM_RESOURCE_PATH covers bonicbot_a2_sim, not the texture. -->
         <visual name="tag_plate">
           <pose>0.052 0 0.12 0 0 0</pose>
           <geometry>

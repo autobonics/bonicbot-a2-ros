@@ -3,9 +3,10 @@ project(bonicbot_a2_sim)
 
 find_package(ament_cmake REQUIRED)
 
-# meshes/ carries the docking dock's AprilTag plate (and its generated PNG
-# texture, which scripts/make_apriltag_texture.sh writes into the SOURCE tree —
-# so it must be regenerated before the build that is meant to install it).
+# meshes/ carries the docking station's AprilTag plate and its texture, both
+# committed. obstacle_world.sdf loads them by
+# package://bonicbot_a2_sim/meshes/..., which only resolves because
+# sim.launch.py puts this package's install prefix on GZ_SIM_RESOURCE_PATH.
 install(
   DIRECTORY config launch worlds meshes
   DESTINATION share/${PROJECT_NAME}
