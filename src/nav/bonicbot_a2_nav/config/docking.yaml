@@ -40,6 +40,18 @@ docking_server:
       # How far out the robot stages before the final approach. Upstream
       # default; re-measure once a real dock exists.
       staging_x_offset: -0.7
+      # MUST BE pi FOR A REAR-MOUNTED CAMERA. Verified against the Humble
+      # source: simple_charging_dock.cpp never reads dock_backwards — it sets
+      # the staging heading as exactly (dock_yaw + staging_yaw_offset).
+      # dock_backwards lives in the docking_server and only flips the approach
+      # controller's drive direction; it does NOT turn the robot around.
+      #
+      # Left at the 0.0 default the staging heading came out 180 deg — nose
+      # toward the dock — so the robot SPUN 180 deg on the spot, which pointed
+      # the rear docking camera away from the tag, lost detection, and aborted
+      # with error 904. With pi the heading is 180+180=0: the robot faces away
+      # from the dock, camera on the tag, and reverses in.
+      staging_yaw_offset: 3.14159
       use_external_detection_pose: true
       # /battery_state is published by the ESP hardware interface on A2
       # (RESP_BATTERY over CDC — voltage, current and SOC are live), so the
@@ -62,11 +74,41 @@ docking_server:
       # the contacts or 18 cm short of them. (The reference's own values are
       # -0.18 / -1.57 / -1.57 for its hardware — different hardware, so not
       # transferable, but an indication of the magnitude involved.)
-      external_detection_translation_x: 0.0
+      # SIM VALUES, measured 2026-09-23 — re-measure for real hardware.
+      #
+      # READ THIS BEFORE TOUCHING THE ROTATIONS. Two upstream facts make the
+      # obvious reasoning wrong, and both cost a crashed robot to find:
+      #
+      # 1. These params ONLY refine the live detection (getRefinedPose). They do
+      #    NOT affect the staging pose. getStagingPose() derives staging purely
+      #    from the yaw of the dock_pose IN THE ACTION GOAL. So a goal carrying
+      #    a raw AprilTag pose (optical convention, yaw ~90 deg here) stages the
+      #    robot 0.7 m SIDEWAYS and it drives off at right angles to the dock.
+      #    The goal's dock_pose must be a proper 2D dock pose: theta such that
+      #    staging_x_offset (negative = "forward of dock") lands in front of it.
+      #    For a dock whose face points +X, that is theta = pi.
+      #
+      # 2. simple_charging_dock.cpp builds the rotation with
+      #        setEuler(pitch, roll, yaw)
+      #    but tf2's signature is setEuler(yaw, pitch, roll) — so these
+      #    parameter names do NOT map to the axes they are named after.
+      #    Do not derive these analytically. Measure them: publish a goal, read
+      #    /dock_pose and /staging_pose, and check the yaw you actually get.
+      #
+      # yaw=-1.5708 was found that way: it is the value that turns this dock's
+      # detected tag (yaw +90) into a dock frame with yaw +180. Swept and
+      # confirmed: 0.0->+90, +1.5708->0, 3.14159->-90, -1.5708->+180.
+      #
+      # translation_x: applied along the (now 180-deg) dock x-axis, so it moves
+      # the target in +X by -tx. The robot must stop with its REAR at the dock
+      # face, not base_link on the tag: chassis is 0.228 long (rear =
+      # base_link-0.114) and the sim dock face is at -3.800 with the tag at
+      # -3.810, giving a base_link target of -3.686, i.e. tx = -0.124.
+      external_detection_translation_x: -0.124
       external_detection_translation_y: 0.0
       external_detection_rotation_roll: 0.0
       external_detection_rotation_pitch: 0.0
-      external_detection_rotation_yaw: 0.0
+      external_detection_rotation_yaw: -1.5708
       filter_coef: 0.1
 
     # ── NO `docks:` DATABASE — this is the A2 divergence ─────────────────
@@ -109,7 +151,20 @@ docking_server:
 # AprilTag detector. Subscribes image_rect + camera_info, publishes /tf (child
 # frame tag<family>:<id>) and detections (apriltag_msgs/AprilTagDetectionArray,
 # with NO embedded pose — which is why dock_pose_publisher.py exists).
-apriltag_node:
+#
+# THE KEY MUST BE THE FULLY-QUALIFIED NODE NAME, NAMESPACE INCLUDED.
+# docking.launch.py puts this node in the `docking_camera` namespace, so its
+# FQN is /docking_camera/apriltag_node. A bare `apriltag_node:` key does NOT
+# match it — ROS 2 silently ignores the whole block and every parameter below
+# falls back to the package default.
+#
+# Found on hardware 2026-09-23, and it is a nasty one because it half-works:
+# the default family is ALSO 36h11, so detection succeeded normally while the
+# default `size` of 1.0 m (against our real 0.10 m) scaled every pose by 10x —
+# the tag was reported 10.58 m away while sitting 0.84 m from the camera.
+# Nothing errors; the dock is simply in the wrong place.
+#   Verify, don't assume:  ros2 param get /docking_camera/apriltag_node size
+/docking_camera/apriltag_node:
   ros__parameters:
     family: '36h11'
     # 10 cm, against M1's 20 cm — and this is a decision, not a copy. The

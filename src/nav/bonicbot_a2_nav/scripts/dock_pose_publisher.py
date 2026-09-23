@@ -15,7 +15,8 @@ no pose field, only id/family/corners/homography — pose is broadcast on
 detections array only to know which tag was seen and when, then looks up
 that frame's pose via tf2 rather than reading it out of the message.
 
-COPIED VERBATIM from bonicbot_m1_nav, deliberately. This node is
+Copied from bonicbot_m1_nav, with ONE divergence: _tag_prefixed() below,
+which M1 does not have and needs. Otherwise identical. This node is
 series-agnostic — it touches no hardware, no A2- or M1-specific topic, and no
 parameter that differs between them. Only the CMakeLists install line and the
 launch file's `package=` differ. If it needs fixing, fix it in both.
@@ -40,6 +41,24 @@ from geometry_msgs.msg import PoseStamped
 from apriltag_msgs.msg import AprilTagDetectionArray
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
+
+
+def _tag_prefixed(family: str) -> str:
+    """Normalise a family name to the 'tag36h11' form apriltag_ros uses for TF.
+
+    The family string is NOT consistent across apriltag_ros versions, and the
+    difference is silent: older builds report it un-prefixed ('36h11') while
+    3.4.0 reports it already prefixed ('tag36h11'). The original code assumed
+    the former and unconditionally prepended 'tag', which on 3.4.0 produces a
+    lookup for 'tagtag36h11:0' — a frame that does not exist, so the pose is
+    never published and docking simply never starts, with only a tf2 warning
+    naming a frame nobody recognises.
+
+    Found on hardware 2026-09-23. Normalising both sides makes this work on
+    either version. bonicbot_m1_nav carries the unfixed original and will hit
+    the same wall whenever its apriltag_ros is upgraded.
+    """
+    return family if family.startswith('tag') else f'tag{family}'
 
 
 class DockPosePublisher(Node):
@@ -71,17 +90,15 @@ class DockPosePublisher(Node):
         if self.use_first_detection:
             detection = msg.detections[0]
         else:
-            # detection.family is un-prefixed ('36h11'), dock_tag_family is
-            # the tf-frame form ('tag36h11') — strip the prefix to compare.
-            wanted_family = self.dock_tag_family[3:] if self.dock_tag_family.startswith('tag') else self.dock_tag_family
             detection = next(
                 (d for d in msg.detections
-                 if d.family == wanted_family and d.id == self.dock_tag_id),
+                 if _tag_prefixed(d.family) == _tag_prefixed(self.dock_tag_family)
+                 and d.id == self.dock_tag_id),
                 None)
             if detection is None:
                 return
 
-        tag_frame = f'tag{detection.family}:{detection.id}'
+        tag_frame = f'{_tag_prefixed(detection.family)}:{detection.id}'
         try:
             tf = self.tf_buffer.lookup_transform(self.fixed_frame, tag_frame, Time())
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
