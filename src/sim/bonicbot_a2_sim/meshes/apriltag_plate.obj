@@ -20,9 +20,18 @@
 # the other, or every pose is scaled wrong while the tag still detects — the
 # quiet failure that parameter is famous for.
 #
-# WINDING / UV: front face is counter-clockwise seen from +X. Looking along -X
-# with +Z up, screen-right is -Y, so image bottom-left maps to (y=+h, z=-h).
-# v=0 is taken as the BOTTOM of the image (Blender/assimp convention).
+# WINDING / UV: the face is wound v1,v4,v3,v2 — NOT v1,v2,v3,v4 in plain
+# declaration order — because that is what comes out CCW as seen from +X.
+# Renderers backface-cull on the GEOMETRIC winding, not on the declared `vn`:
+# an OBJ can assert vn = (1,0,0) and still be invisible from +X if the
+# triangle order traces clockwise from that side. Verified the hard way on
+# 2026-09-23 — the plain-order face rendered the dock's backing box but the
+# tag itself was culled from exactly the direction the docking camera
+# approaches from, which looked identical to a missing texture.
+#
+# Looking along -X with +Z up, screen-right is -Y, so image bottom-left maps
+# to (y=+h, z=-h). v=0 is taken as the BOTTOM of the image (Blender/assimp
+# convention).
 #
 # IF THE TAG IS NEVER DETECTED IN SIM, suspect mirroring before anything else —
 # flip the committed texture horizontally and restart Gazebo:
@@ -46,4 +55,4 @@ vt 0.0 1.0
 
 vn 1.0 0.0 0.0
 
-f 1/1/1 2/2/2 3/3/3 4/4/4
+f 1/1/1 4/4/1 3/3/1 2/2/1
