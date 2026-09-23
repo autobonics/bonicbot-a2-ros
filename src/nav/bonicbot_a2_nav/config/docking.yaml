@@ -39,7 +39,12 @@ docking_server:
       docking_threshold: 0.28
       # How far out the robot stages before the final approach. Upstream
       # default; re-measure once a real dock exists.
-      staging_x_offset: -0.7
+      staging_x_offset: 0.7
+      # Was -0.7 (upstream's own default). With no +pi actually applied (see
+      # staging_yaw_offset above), NEGATIVE pushed the undock target BACKWARD,
+      # deeper into the dock/wall, not away -- exactly the "one wheel spins,
+      # robot arcs into the wall" behavior seen 2026-09-24. Positive pushes it
+      # forward/away, matching physical intent.
       # MUST BE pi FOR A REAR-MOUNTED CAMERA. Verified against the Humble
       # source: simple_charging_dock.cpp never reads dock_backwards — it sets
       # the staging heading as exactly (dock_yaw + staging_yaw_offset).
@@ -52,6 +57,37 @@ docking_server:
       # with error 904. With pi the heading is 180+180=0: the robot faces away
       # from the dock, camera on the tag, and reverses in.
       staging_yaw_offset: 0.0
+      # REVISED 2026-09-24, empirically. Verified via /staging_pose during a
+      # real undock: observed staging x=-4.309 yaw=-179.96 from robot docked at
+      # x=-3.607 yaw=0.04 match EXACTLY if undockRobot()'s own
+      # "if(dock_backwards_) dock_pose.yaw += pi" does NOT take effect at
+      # runtime on this installed opennav_docking build (matches staging.x =
+      # robot.x + cos(0)*staging_x_offset and staging.yaw = robot.yaw + this
+      # offset, with NO +pi anywhere) -- contradicts the humble-branch GitHub
+      # source, so the apt package here is evidently built from something else.
+      # Trust the measurement, not the source read. See staging_x_offset below,
+      # fixed together -- both were calibrated for a flip that isn't happening.
+      # UNCONFUSE ME LATER: this looks identical to the pre-fix value and for
+      # a completely different reason. getStagingPose() has TWO call sites:
+      #   dockRobot()   -- dock->getStagingPose() with NO args, feeds Nav2's
+      #                    navigate_to_staging_pose goal ONLY. Every test here
+      #                    uses navigate_to_staging_pose:=false, so THIS value
+      #                    never affects docking at all -- verified 2026-09-24,
+      #                    docking succeeded with staging_yaw_offset at both
+      #                    0.0 and back to pi with IDENTICAL trajectories.
+      #   undockRobot()  -- dock->getStagingPose(dock_pose, frame) where
+      #                    dock_pose = robot's OWN current yaw (~0 when docked)
+      #                    + pi (undockRobot's own dock_backwards flip, a
+      #                    SEPARATE +pi from approachDock's, same file,
+      #                    different function). staging.yaw ends up
+      #                    (0 + pi + staging_yaw_offset). getCommandToPose()
+      #                    then calls the controller with backward=false (undock
+      #                    drives forward), where EgocentricPolarCoordinates
+      #                    does NOT add its own +pi (that only happens for
+      #                    backward=true). So staging.yaw must land on 0 for a
+      #                    straight, no-turn departure -- meaning
+      #                    staging_yaw_offset must be pi to cancel undockRobot's
+      #                    own +pi. That's this value.
       use_external_detection_pose: true
       # CONFIRMED UPSTREAM BUG, 2026-09-23 — not this repo's config, not the
       # camera, not the calibration. Isolated by setting this false for one
@@ -135,7 +171,13 @@ docking_server:
       # face, not base_link on the tag: chassis is 0.228 long (rear =
       # base_link-0.114) and the sim dock face is at -3.800 with the tag at
       # -3.810, giving a base_link target of -3.686, i.e. tx = -0.124.
-      external_detection_translation_x: -0.130
+      external_detection_translation_x: -0.08
+      # Was -0.13 (21mm final gap -- too tight, reads as a near-collision).
+      # translation_x shifts BOTH dock_pose_ and the controller's target
+      # equally (backward_projection's 0.25m gap between them is unaffected),
+      # so this is a pure standoff adjustment: +0.05 -> ~70mm final gap.
+      # docking_threshold (0.28, set for the 0.25m dock_pose_/target gap)
+      # stays valid unchanged.0
       external_detection_translation_y: 0.0
       external_detection_rotation_roll: 0.0
       external_detection_rotation_pitch: 0.0
