@@ -36,7 +36,7 @@ docking_server:
       plugin: 'opennav_docking::SimpleChargingDock'
       # 5 cm — the reference implementation's own default. NOT yet validated
       # against A2's charging-contact geometry.
-      docking_threshold: 0.05
+      docking_threshold: 0.28
       # How far out the robot stages before the final approach. Upstream
       # default; re-measure once a real dock exists.
       staging_x_offset: -0.7
@@ -51,8 +51,29 @@ docking_server:
       # the rear docking camera away from the tag, lost detection, and aborted
       # with error 904. With pi the heading is 180+180=0: the robot faces away
       # from the dock, camera on the tag, and reverses in.
-      staging_yaw_offset: 3.14159
+      staging_yaw_offset: 0.0
       use_external_detection_pose: true
+      # CONFIRMED UPSTREAM BUG, 2026-09-23 — not this repo's config, not the
+      # camera, not the calibration. Isolated by setting this false for one
+      # test: docking_server then drives to the goal's static dock_pose with
+      # NO further camera/detection involvement at all (getStagingPose():
+      # "if (!use_external_detection_pose_) { dock_pose_.pose = pose; }" —
+      # opennav_docking humble branch). The approach still oscillated forever
+      # (yaw swinging -26deg..+49deg, y drifting to 0.26m, never settling) with
+      # zero vision in the loop, proving the divergence is in the control law.
+      #
+      # Root cause, read from nav2_graceful_controller's SmoothControlLaw
+      # (humble branch, calculateRegularVelocity): for backward=true it negates
+      # BOTH curvature and v (so their product w is unchanged) but never
+      # mirrors the heading-error terms (phi/delta), which stay referenced to
+      # the robot's FRONT. The correction is applied in the wrong rotational
+      # sense while reversing, so error grows instead of shrinking.
+      #
+      # docking_server itself is fine — it rotates the target pose by pi for
+      # dock_backwards (docking_server.cpp) exactly as documented. The bug is
+      # one level down, in the controller humble's opennav_docking depends on.
+      # A fix needs a patched SmoothControlLaw (or an overridden controller
+      # plugin) upstream; nothing in this repo can work around it in config.
       # /battery_state is published by the ESP hardware interface on A2
       # (RESP_BATTERY over CDC — voltage, current and SOC are live), so the
       # "am I charging yet" check needs no new wiring.
@@ -66,7 +87,17 @@ docking_server:
       use_battery_status: true
       use_stall_detection: false
 
-      external_detection_timeout: 1.0
+      # 3.0, up from the 1.0 upstream default. Measured 2026-09-23: this sim's
+      # docking_camera sensor produces intermittent BLANK frames (single flat
+      # colour, no scene) while its parent link is actively rotating — not a
+      # permanent freeze, a per-frame flicker, real frames interleaved with
+      # blanks (Ogre2 render/pose-update race under gz-sim Fortress, not
+      # something this repo's config can fix). At the camera's own ~2.6 Hz,
+      # 2-3 consecutive blanks costs over a second and tripped detection loss
+      # every single approach at the 1.0s default. 3.0s comfortably tolerates
+      # the flicker while staying fast relative to dock_approach_timeout (30s)
+      # — a genuinely lost dock is still caught well before that ceiling.
+      external_detection_timeout: 3.0
       # Offset from the detected AprilTag pose to the dock's actual charging
       # contact point. Zero is a PLACEHOLDER, not a measurement — the tag is
       # never exactly at the contacts. Must be measured once a physical dock
@@ -104,11 +135,11 @@ docking_server:
       # face, not base_link on the tag: chassis is 0.228 long (rear =
       # base_link-0.114) and the sim dock face is at -3.800 with the tag at
       # -3.810, giving a base_link target of -3.686, i.e. tx = -0.124.
-      external_detection_translation_x: -0.124
+      external_detection_translation_x: -0.130
       external_detection_translation_y: 0.0
       external_detection_rotation_roll: 0.0
       external_detection_rotation_pitch: 0.0
-      external_detection_rotation_yaw: -1.5708
+      external_detection_rotation_yaw: 1.5708
       filter_coef: 0.1
 
     # ── NO `docks:` DATABASE — this is the A2 divergence ─────────────────

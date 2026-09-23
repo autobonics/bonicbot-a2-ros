@@ -48,7 +48,40 @@
         <!-- rpy yaw = pi: the link's +X looks BACKWARD along the chassis,
              because the robot reverses onto the dock (docking.yaml
              dock_backwards: true). -->
-        <origin xyz="-0.110 0 0.120" rpy="0 0 ${pi}"/>
+        <!-- x=-0.180: THE LENS MUST SIT OUTSIDE THE ROBOT'S OWN GEOMETRY.
+             There are TWO nested enclosures here and both have to be cleared:
+
+               chassis box   ends at x = -0.114  (chassis_length 0.228 / 2)
+               body.obj shell ends at x = -0.1396 AT THIS CAMERA'S HEIGHT
+                                                  (measured from the mesh's own
+                                                   vertices within z +/-0.02 of
+                                                   0.120; the shell's overall
+                                                   bbox reaches -0.157, but that
+                                                   is a different part of the
+                                                   shell, not at this height)
+
+             The original -0.110 was inside BOTH. A first fix to -0.135 cleared
+             the chassis box but was still inside the shell, which is why the
+             camera then rendered perfectly while stationary and at staging
+             (0 blanks over 47 frames) yet broke up as soon as the robot moved
+             and rotated: the surrounding shell triangles fall in and out of
+             the 0.05m near-clip as the pose changes, and a frame that clips
+             wrong comes out a single flat colour with no scene at all.
+
+             face_camera never shows this because it sits on the head at
+             z~0.685, above the shell, enclosed by nothing.
+
+             Diagnosed 2026-09-23 by logging both cameras over 2.2m of travel:
+             face 394-601 unique colours throughout, docking exactly 1.
+
+             -0.155 clears the shell by 15mm at this height. That also matches
+             what the real addon is: a bracket bolted to the BACK of the robot,
+             so the lens genuinely does protrude past the shell.
+
+             DO NOT move it forward of about -0.145. Re-measure on the real
+             mount, and if you change the height, re-run the vertex query above
+             for the new z first; the shell's rear extent varies with z. -->
+        <origin xyz="-0.155 0 0.120" rpy="0 0 ${pi}"/>
     </joint>
 
     <!-- Prevent URDF→SDF fixed-joint reduction from lumping this link into
@@ -117,7 +150,7 @@
              at (docs/bonicbot_a2_docking.md §2.1). -->
         <sensor name="docking_camera" type="camera">
             <pose> 0 0 0 0 0 0 </pose>
-            <visualize>false</visualize>
+            <visualize>true</visualize>  <!-- TEMP debug 2026-09-23: watch the frustum/preview live while chasing the blank-on-yaw bug -->
             <update_rate>10</update_rate>
             <camera>
                 <horizontal_fov>1.5008</horizontal_fov>

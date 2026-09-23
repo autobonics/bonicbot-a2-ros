@@ -136,6 +136,20 @@
         <origin xyz="${-wheel_offset_x} 0 ${-wheel_offset_z}"/>
     </joint>
 
+    <!-- TRIED disableFixedJointLumping on chassis_joint (2026-09-23), on the
+         theory that docking_camera's blank-during-yaw bug traced to chassis
+         being the one unlumped-camera-mount link without it. WRONG — it broke
+         model spawn entirely:
+             PoseRelativeToGraph unable to find path to source vertex
+         Reverted. The docking-camera-blank-on-yaw bug is CONFIRMED (see
+         docking.yaml and docs/bonicbot_a2_docking.md) but the fix is not this.
+         Something else about chassis's role in the pose graph makes it load
+         bearing for lumping to stay enabled here — chassis carries several
+         children (laser_joint, wheel joints reference base_link not chassis,
+         but body/external mesh and lidar do reference it) and disabling
+         lumping on it alone, without matching changes elsewhere, produces an
+         inconsistent graph rather than a fixed one. -->
+
     <link name="chassis">
         <visual>
             <origin xyz="0 0 ${chassis_center_z_rel_chassis}"/>
