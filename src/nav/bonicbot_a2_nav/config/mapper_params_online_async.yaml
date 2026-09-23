@@ -69,11 +69,23 @@ slam_toolbox:
 
     correlation_search_space_dimension: 0.5
     correlation_search_space_resolution: 0.01
-    correlation_search_space_smear_dev_wsiation: 0.1 
+    # Was `correlation_search_space_smear_dev_wsiation` — "deviation" misspelled,
+    # so slam_toolbox never recognised the key and silently fell back to its 0.03
+    # default. The spelling is fixed here, but the VALUE is deliberately 0.03 and
+    # NOT the 0.1 that sat in the file: correcting the name on 2026-09-23 activated
+    # 0.1 for the first time ever and it visibly degraded the map — ray-fan striping
+    # across open space — and was reverted the same day. 0.1 is 10x
+    # correlation_search_space_resolution (0.01) below, which is far too wide a blur
+    # kernel; 0.03 is 3x, and is what has actually been running all along.
+    # Do not "restore" 0.1 — it has never worked, it was only ever a dead key.
+    correlation_search_space_smear_deviation: 0.03
 
     loop_search_space_dimension: 8.0
     loop_search_space_resolution: 0.05
-    loop_search_space_smear_dev_wsiation: 0.03
+    # Same misspelling, same silent fallback. Here the file's value and the default
+    # are both 0.03, so fixing the name changes nothing — it just stops the key
+    # being discarded without warning.
+    loop_search_space_smear_deviation: 0.03
 
     distance_variance_penalty: 0.5      
     angle_variance_penalty: 1.0    
