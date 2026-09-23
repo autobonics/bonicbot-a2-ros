@@ -3,6 +3,19 @@
 
     <xacro:arg name="use_ros2_control" default="true"/>
     <xacro:arg name="sim_mode" default="false"/>
+    <!-- Docking addon fitment — per ROBOT, not per series. Default comes from
+         the environment so that every bring-up path agrees without passing an
+         argument: bonicOS-robot-app's config.py sets DOCKING_ADDON=1 from
+         robot_config.yaml's `addons: {docking: true}` and spawns its launches
+         with a copy of its own env, and start_session_robot.sh exports it from
+         the same file for manual bring-up.
+
+         Unset (the common case) means this evaluates false and the docking
+         camera's links and TF frames DO NOT EXIST. Do not "fix" a robot whose
+         docking camera frame is missing by hardcoding this true — check the
+         env, because a URDF that disagrees with the one robot_app launched is
+         the failure mode docs/bonicbot_a2_docking.md §1 warns about. -->
+    <xacro:arg name="docking_addon" default="$(optenv DOCKING_ADDON false)"/>
 
     <xacro:include filename="robot_core.xacro" />
 
@@ -14,5 +27,9 @@
     </xacro:unless>
     <xacro:include filename="lidar.xacro" />  
     <xacro:include filename="camera.xacro" />      
+
+    <xacro:if value="$(arg docking_addon)">
+        <xacro:include filename="docking_camera.xacro" />
+    </xacro:if>
     
 </robot>

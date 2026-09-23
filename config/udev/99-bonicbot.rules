@@ -24,6 +24,31 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="l
 # Camera rotation for an inverted mount is declared in /boot/firmware/config.txt
 # (dtoverlay=ov5647,rotation=180), not here and not in ROS.
 
+# Docking camera — USB (UVC) webcam, rear-facing. DOCKING ADDON ONLY.
+#
+# Most A2s do not have this camera and the rule below matches nothing on them,
+# which is the intended outcome: no symlink, and docking_camera.launch.py is
+# never started anyway (see docs/bonicbot_a2_docking.md §1).
+#
+# TODO(bring-up): fill in the real vendor/product for the fitted module. The
+# XXXX placeholders match nothing, so the addon cannot work until this is done
+# — and it fails the right way, with usb_cam reporting it cannot open
+# /dev/dock_cam, rather than by grabbing some other video device.
+#
+#   udevadm info -a /dev/video2 | grep -E "idVendor|idProduct|KERNELS"
+#
+# ATTR{index}=="0" is load-bearing: a UVC camera enumerates MORE THAN ONE
+# /dev/video* node (the extra ones are metadata/stream siblings), and without
+# it the symlink can land on a node that streams nothing. Same guard M1 uses
+# for its two USB cameras.
+#
+# A plain vendor/product match is enough here where M1 has to match by USB
+# port: M1 fits two identical Waveshare cameras reporting the same serial,
+# A2 fits exactly one USB camera. (The head camera is CSI and needs no rule —
+# see the note below.) If a second USB camera is ever added, disambiguate by
+# KERNELS the way M1 does.
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", ATTR{index}=="0", SYMLINK+="dock_cam", GROUP="video", MODE="0660"
+
 # Joystick / gamepad — teleop (bonicbot_a2_nav joystick.launch.py).
 #
 # PERMISSIONS ARE THE POINT, not the symlink. /dev/input/js0 is root:input with

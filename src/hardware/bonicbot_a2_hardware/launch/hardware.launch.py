@@ -1,8 +1,9 @@
 """BonicBot A2 hardware bringup — everything that touches /dev/*.
 
 Starts robot_state_publisher, the ros2_control controller_manager bound to the
-ESP32-S3 USB CDC interface, all seven controllers, twist_mux, the RPLIDAR and
-(optionally) the CSI camera.
+ESP32-S3 USB CDC interface, all seven controllers, twist_mux, the RPLIDAR,
+(optionally) the CSI camera, and — only on robots fitted with the docking
+addon — the rear docking camera.
 
 Navigation runs separately:
     ros2 launch bonicbot_a2_nav bringup.launch.py
@@ -42,6 +43,33 @@ def generate_launch_description():
     use_joystick_arg = DeclareLaunchArgument(
         'use_joystick', default_value='true',
         description='Start joystick teleop on the high-priority twist_mux lane',
+    )
+    # ── Docking addon: fitment, not preference ───────────────────────────
+    #
+    # Unlike use_camera/use_lidar above, this one does NOT default true. The
+    # docking camera is an addon most A2s do not carry, and a robot without it
+    # must be byte-identical to an A2 before this existed — the same rule the
+    # WHEEL_RADIUS override below follows ("no env var set means no override
+    # dict is added at all"). Defaulting true would start a usb_cam node
+    # against a /dev/dock_cam that does not exist on every robot in the fleet.
+    #
+    # The default comes from the environment rather than being hardcoded false
+    # because the flag has to reach BOTH bring-up paths from one place:
+    # robot_app spawns its launches with a copy of its own env (config.py sets
+    # DOCKING_ADDON from robot_config.yaml's `addons:` block), and
+    # start_session_robot.sh exports it from that same file for manual
+    # bring-up. Same mechanism as WHEEL_RADIUS, one layer up.
+    #
+    # It must agree with the URDF: robot.urdf.xacro reads the same env var to
+    # decide whether docking_camera_link exists at all. Set for one and not the
+    # other and you get a camera publishing into a frame that is not in the TF
+    # tree (or a frame nothing publishes into) — see
+    # docs/bonicbot_a2_docking.md §1.
+    use_docking_camera_arg = DeclareLaunchArgument(
+        'use_docking_camera',
+        default_value=os.environ.get('DOCKING_ADDON', 'false'),
+        description='Start the rear docking camera (usb_cam on /dev/dock_cam). '
+                    'Defaults from $DOCKING_ADDON — addon-fitted robots only',
     )
     # Forwarded to rplidar.launch.py so the LiDAR's dominant CPU cost can be
     # toggled from the top-level launch without editing files. See the note on
@@ -197,6 +225,12 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_camera')),
     )
 
+    docking_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [os.path.join(pkg_share, 'launch', 'docking_camera.launch.py')]),
+        condition=IfCondition(LaunchConfiguration('use_docking_camera')),
+    )
+
     joystick = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [os.path.join(nav_share, 'launch', 'joystick.launch.py')]),
@@ -208,6 +242,7 @@ def generate_launch_description():
         use_camera_arg,
         use_lidar_arg,
         use_joystick_arg,
+        use_docking_camera_arg,
         angle_compensate_arg,
         joint_states_throttle_hz_arg,
         rsp,
@@ -223,5 +258,6 @@ def generate_launch_description():
         twist_mux,
         rplidar,
         camera,
+        docking_camera,
         joystick,
     ])

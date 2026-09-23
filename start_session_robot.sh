@@ -81,14 +81,23 @@ if [ -f "$ROBOT_CFG" ]; then
 try:
     import yaml
     with open('$ROBOT_CFG') as f:
-        hw = (yaml.safe_load(f) or {}).get('hardware') or {}
+        cfg = yaml.safe_load(f) or {}
+    hw = cfg.get('hardware') or {}
+    addons = cfg.get('addons') or {}
 except Exception as e:
     import sys
-    print(f'# robot_config.yaml hardware block unreadable: {e}', file=sys.stderr)
+    print(f'# robot_config.yaml unreadable: {e}', file=sys.stderr)
     hw = {}
+    addons = {}
 for k in ('encoder_cpr', 'wheel_radius'):
     if k in hw and hw[k] is not None:
         print(f'{k}={hw[k]}')
+# Addon FITMENT, not calibration — whether the part exists at all, so it lives
+# in its own block. Emitted only when true: absent must stay absent, because
+# both the URDF and hardware.launch.py read the exported var and an addon that
+# is 'disabled' rather than missing still costs a different robot_description.
+if addons.get('docking'):
+    print('docking_addon=1')
 ")
     # Errors go to the session log (this script's stdout/stderr are already
     # redirected there by whatever invokes it), NOT /dev/null — a PyYAML
@@ -98,9 +107,21 @@ for k in ('encoder_cpr', 'wheel_radius'):
         case "$key" in
             encoder_cpr)  export ENCODER_CPR="$val" ;;
             wheel_radius) export WHEEL_RADIUS="$val" ;;
+            # Read by robot.urdf.xacro ($(optenv DOCKING_ADDON false), which
+            # decides whether the docking camera's links and TF frames exist)
+            # and by hardware.launch.py's use_docking_camera default. This
+            # export is what keeps manual bring-up producing the SAME URDF
+            # robot_app produces — robot_app sets the var itself from this same
+            # file, and the two disagreeing is the documented trap in
+            # docs/bonicbot_a2_docking.md §1.
+            docking_addon) export DOCKING_ADDON="$val" ;;
         esac
     done <<< "$HW_JSON"
     [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default}"
+    # Logged unconditionally when set, and deliberately loud: if the docking
+    # camera frame is missing later, the first question is whether this line
+    # appeared in the session log.
+    [ -n "${DOCKING_ADDON:-}" ] &&         echo "docking addon ENABLED from $ROBOT_CFG: DOCKING_ADDON=$DOCKING_ADDON"
 
 # No camera flip key, and nothing to export for one. It was parsed here and
 # exported as CAMERA_VERTICAL_FLIP, which no launch file has read since the

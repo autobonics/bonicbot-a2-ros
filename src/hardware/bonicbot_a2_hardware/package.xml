@@ -43,6 +43,12 @@
        camera_ros drives libcamera, which routes Bayer through the bcm2835-isp
        hardware ISP. See camera.launch.py. -->
   <exec_depend>camera_ros</exec_depend>
+  <!-- Docking addon only (docking_camera.launch.py). The rear camera is a UVC
+       webcam, so it takes the ordinary v4l2 path — none of the libcamera
+       reasoning above applies to it. Declared unconditionally because
+       package.xml cannot be conditional; on a robot without the addon the
+       driver is installed and never launched. -->
+  <exec_depend>usb_cam</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

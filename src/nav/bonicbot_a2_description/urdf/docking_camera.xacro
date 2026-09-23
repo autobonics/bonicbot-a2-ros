@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<!-- BonicBot A2 docking camera — REAR-FACING, ADDON-ONLY.
+
+     This file is included ONLY when the docking addon is fitted:
+     robot.urdf.xacro gates it behind $(optenv DOCKING_ADDON false), which
+     bonicOS-robot-app's config.py sets from robot_config.yaml's
+     `addons: {docking: true}`. On a plain A2 nothing here exists — no links,
+     no TF frames, no sim sensor. That is the addon contract (see
+     docs/bonicbot_a2_docking.md §1): absent, not disabled.
+
+     Mirrors bonicbot_m1_description/urdf/usb_cameras.xacro's docking camera
+     deliberately — same link names, same optical-frame convention, same topic
+     — so dock_pose_publisher and robot_app address both series identically.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" >
+
+    <!-- ── MOUNT GEOMETRY IS A PLACEHOLDER ──────────────────────────────
+         TODO(bring-up): measure these offsets on the real addon mount and
+         replace them. They are a plausible guess, NOT a measurement, and
+         every docking approach is only as accurate as this transform: the
+         detector reports the tag's pose in the optical frame, and this joint
+         is the only thing that turns that into a pose in the robot frame. A
+         few mm of translation error is survivable; a couple of degrees of
+         rotation error is not — it walks the robot sideways off the dock
+         over the length of the approach.
+
+         Frame note for whoever measures: the parent is `chassis`, whose
+         origin sits at wheel-axle height minus wheel_offset_z, i.e. ~4 mm
+         BELOW the floor, not at the chassis centre. So z here is very nearly
+         height above ground. Reference points from robot_core.xacro:
+           chassis rear face   x = -0.114   (-chassis_length / 2)
+           chassis top surface  z =  0.1405 (chassis_top_z_rel_chassis)
+         Literal numbers rather than the xacro properties, matching
+         lidar.xacro — the values that land here come off a ruler, and
+         reading them should not require resolving a property chain.
+
+         TODO(mesh): visual mesh is NOT set up. The addon bracket + camera
+         body are drawn here as a primitive cylinder, the same stand-in
+         camera.xacro uses for the head camera. The real mesh comes from the
+         addon GLB (convert to .obj/.mtl into ../meshes/ and swap the
+         <geometry> below, the way body.xacro's external_body_mesh_link
+         carries body.obj). Cosmetic only — it does not affect the transform
+         above, which is the part that matters.
+    -->
+    <joint name="docking_camera_joint" type="fixed">
+        <parent link="chassis"/>
+        <child link="docking_camera_link"/>
+        <!-- rpy yaw = pi: the link's +X looks BACKWARD along the chassis,
+             because the robot reverses onto the dock (docking.yaml
+             dock_backwards: true). -->
+        <origin xyz="-0.110 0 0.120" rpy="0 0 ${pi}"/>
+    </joint>
+
+    <!-- Prevent URDF→SDF fixed-joint reduction from lumping this link into
+         chassis. Without it the sensor's world pose is baked at spawn time and
+         never updates as the robot moves, producing a frozen / gray-fill
+         image. Exactly the bug camera.xacro documents for the head camera
+         (SDFormat 12 / gz-sim Fortress).
+
+         This is also why the link below carries mass and inertia where M1's
+         equivalent does not: M1 lets its docking link lump into base_link, so
+         a massless visual-only link is harmless there. Lumping disabled means
+         gz-sim treats this as a link of its own and a zero-mass link is not
+         valid. -->
+    <gazebo reference="docking_camera_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <link name="docking_camera_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+            <geometry>
+                <cylinder radius="0.005" length="0.005"/>
+            </geometry>
+            <material name="black"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+            <geometry>
+                <cylinder radius="0.005" length="0.005"/>
+            </geometry>
+        </collision>
+        <xacro:inertial_cylinder mass="0.02" length="0.005" radius="0.005">
+            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+        </xacro:inertial_cylinder>
+    </link>
+
+    <!-- ROS optical convention (z forward, x right, y down) from the ROS body
+         convention (x forward, y left, z up). Identical to the head camera's
+         optical joint and to M1's — apriltag_ros assumes it, and the tag pose
+         comes out rotated 90° in two axes if it is wrong. -->
+    <joint name="docking_camera_optical_joint" type="fixed">
+        <parent link="docking_camera_link"/>
+        <child link="docking_camera_link_optical"/>
+        <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <!-- Preserve optical frame through URDF→SDF conversion -->
+    <gazebo reference="docking_camera_optical_joint">
+        <disableFixedJointLumping>true</disableFixedJointLumping>
+    </gazebo>
+
+    <link name="docking_camera_link_optical"></link>
+
+    <gazebo reference="docking_camera_link">
+        <material>Gazebo/Black</material>
+
+        <!-- Sim sensor. Phase 4 of the plan leans on this: with an AprilTag
+             texture in the world, the whole pipeline (detector → pose
+             publisher → docking_server → robot_app) is testable before the
+             addon hardware exists.
+
+             horizontal_fov 1.5008 rad (~86°) is M1's figure for this same USB
+             module. update_rate 10 matches what docking_camera.launch.py asks
+             the real camera for — sim should not be easier than hardware.
+             far clip 10 m is well past the ~2 m the 0.10 m tag is detectable
+             at (docs/bonicbot_a2_docking.md §2.1). -->
+        <sensor name="docking_camera" type="camera">
+            <pose> 0 0 0 0 0 0 </pose>
+            <visualize>false</visualize>
+            <update_rate>10</update_rate>
+            <camera>
+                <horizontal_fov>1.5008</horizontal_fov>
+                <image>
+                    <format>R8G8B8</format>
+                    <width>640</width>
+                    <height>480</height>
+                </image>
+                <clip>
+                    <near>0.05</near>
+                    <far>10.0</far>
+                </clip>
+            </camera>
+            <topic>/docking_camera/image_raw</topic>
+            <gz_frame_id>docking_camera_link_optical</gz_frame_id>
+        </sensor>
+    </gazebo>
+
+</robot>
