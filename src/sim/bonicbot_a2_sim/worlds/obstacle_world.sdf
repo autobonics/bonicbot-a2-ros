@@ -1091,11 +1091,19 @@
              failed dock is a docking failure, not a chair.
 
          NOTE ON HEIGHT. This world's floors are raised 0.05 m slabs, not the
-         ground plane — so the robot stands at z = 0.05, which puts the docking
-         camera at z ~ 0.166 (0.116 above whatever it stands on). The tag centre
-         is therefore at 0.17 in world terms, NOT the 0.12 that the camera link
-         carries in the `chassis` frame. Move this model to a world with a flat
-         ground plane and the tag ends up 50 mm high.
+         ground plane — so the robot stands at z = 0.05, and so does this
+         model. Heights below are above the slab: docking camera 0.103, tag
+         centre 0.1475. Move this model to a world with a flat ground plane and
+         drop its pose z to 0, or everything ends up 50 mm high.
+
+         GEOMETRY IS CAD. meshes/docking_station.obj is a2-docking-station.glb,
+         exported in the robot's CAD frame at the DOCKED pose and moved into
+         this model's frame (back face on the wall, +X into the room). In that
+         pose the brass pins stop 2 mm short of the robot's dock contacts and
+         the tag sits where the CAD's `apriltag` empty is. Then dropped 4.5 mm
+         so the station stands ON the floor: the CAD floor and the URDF floor
+         differ by that much, and a floating dock looks wrong. Tag and
+         collision box moved down with it.
 
          There is no battery in simulation, so SimpleChargingDock's charge
          confirmation can never be satisfied — launch docking with
@@ -1109,34 +1117,35 @@
            wall, where it is both invisible and un-hittable. -->
       <pose>-3.85 0 0.05 0 0 0</pose>
       <link name="body">
-        <!-- Backing body, flush to the wall. Tall enough for the LiDAR
-             (~0.18 m above the floor) to see, so the dock appears in the
+        <!-- Station body + brass charging pins, flush to the wall. The body
+             is 0.05 m deep, 0.16 m wide and 0.2125 m tall, so the LiDAR
+             (~0.18 m above the floor) sees it and the dock appears in the
              costmap instead of being an invisible obstacle the planner routes
              straight through. -->
-        <visual name="backing">
-          <pose>0.025 0 0.15 0 0 0</pose>
+        <visual name="station">
           <geometry>
-            <box>
-              <size>0.05 0.30 0.30</size>
-            </box>
+            <mesh>
+              <uri>package://bonicbot_a2_sim/meshes/docking_station.obj</uri>
+            </mesh>
           </geometry>
-          <material>
-            <ambient>0.25 0.25 0.28 1</ambient>
-            <diffuse>0.25 0.25 0.28 1</diffuse>
-            <specular>0.05 0.05 0.05 1</specular>
-          </material>
         </visual>
-        <collision name="backing">
-          <pose>0.025 0 0.15 0 0 0</pose>
+        <!-- Collision is the body's bounding box only. The pins (out to
+             x = 0.08) are left visual-only so a slight overshoot in sim does
+             not end as a physics shove against a 10 mm pin. -->
+        <collision name="station">
+          <pose>0.025 0 0.10625 0 0 0</pose>
           <geometry>
             <box>
-              <size>0.05 0.30 0.30</size>
+              <size>0.05 0.16 0.2125</size>
             </box>
           </geometry>
         </collision>
 
-        <!-- The tag: a textured quad, 2 mm clear of the backing face to avoid
-             z-fighting. Visual only. 0.125 m plate whose black border spans
+        <!-- The tag: a textured quad in the station's 1 mm front recess
+             (recess floor x = 0.049, rim x = 0.050), 0.5 mm clear of the
+             recess floor to avoid z-fighting. The recess is 0.123 m wide, so
+             the rims cover 1 mm of the plate's white margin each side —
+             harmless. Visual only. 0.125 m plate whose black border spans
              0.100 m, matching docking.yaml's `size: 0.10` — the arithmetic is
              in meshes/apriltag_plate.obj.
 
@@ -1144,7 +1153,7 @@
              plate renders plain white, the mesh URI failed to resolve — check
              GZ_SIM_RESOURCE_PATH covers bonicbot_a2_sim, not the texture. -->
         <visual name="tag_plate">
-          <pose>0.052 0 0.12 0 0 0</pose>
+          <pose>0.0495 0 0.1475 0 0 0</pose>
           <geometry>
             <mesh>
               <uri>package://bonicbot_a2_sim/meshes/apriltag_plate.obj</uri>
