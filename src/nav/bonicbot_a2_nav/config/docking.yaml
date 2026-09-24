@@ -115,7 +115,13 @@ docking_server:
       # Real dock geometry (contact offset from the tag, mount roll/pitch)
       # still needs measuring once a physical dock exists — these values are
       # sim-calibrated for obstacle_world.sdf's apriltag_dock model.
-      external_detection_translation_x: -0.08
+      #
+      # -0.092 (2026-09-24, was -0.08): the dock is now the CAD station
+      # (a2-docking-station.glb), whose docked pose puts the chassis rear
+      # 62.5 mm from the station face with the brass pins on the robot's
+      # contacts. -0.08 was tuned for the old box dock and would stop ~8 mm
+      # short of the pins on the new one. Not yet re-verified in sim.
+      external_detection_translation_x: -0.092
       external_detection_translation_y: 0.0
       external_detection_rotation_roll: 0.0
       external_detection_rotation_pitch: 0.0

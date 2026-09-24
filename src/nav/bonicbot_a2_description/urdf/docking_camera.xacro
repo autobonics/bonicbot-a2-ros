@@ -133,17 +133,22 @@
              publisher → docking_server → robot_app) is testable before the
              addon hardware exists.
 
-             horizontal_fov 1.5008 rad (~86°) is the figure for this USB
-             module. update_rate 10 matches what docking_camera.launch.py asks
-             the real camera for — sim should not be easier than hardware.
-             far clip 10 m is well past the ~2 m the 0.10 m tag is detectable
-             at (docs/bonicbot_a2_docking.md §2.1). -->
+             horizontal_fov 2.443 rad (140°): the real module is the Waveshare
+             IMX335 5MP USB Camera (B), rated 175° DIAGONAL through a fisheye
+             lens. On a 4:3 image with an equidistant fisheye, the horizontal
+             share of that is 175° x 4/5 = 140°. Fortress has no fisheye
+             sensor, so this is a pinhole at 140°: the edges are stretched and
+             the centre (where the tag is) comes out ~2x SMALLER than on the
+             real lens. Expect a shorter detection range in sim than on
+             hardware; the ~2 m in docs/bonicbot_a2_docking.md §2.1 was worked
+             out for the old 86° figure. update_rate 10 matches what
+             docking_camera.launch.py asks the real camera for. -->
         <sensor name="docking_camera" type="camera">
             <pose> 0 0 0 0 0 0 </pose>
             <visualize>true</visualize>  <!-- TEMP debug 2026-09-23: watch the frustum/preview live while chasing the blank-on-yaw bug -->
             <update_rate>10</update_rate>
             <camera>
-                <horizontal_fov>1.5008</horizontal_fov>
+                <horizontal_fov>2.443</horizontal_fov>
                 <image>
                     <format>R8G8B8</format>
                     <width>640</width>
