@@ -13,10 +13,13 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" >
 
-    <!-- ── MOUNT GEOMETRY IS A PLACEHOLDER ──────────────────────────────
-         TODO(bring-up): measure these offsets on the real addon mount and
-         replace them. They are a plausible guess, NOT a measurement, and
-         every docking approach is only as accurate as this transform: the
+    <!-- ── MOUNT GEOMETRY COMES FROM CAD ─────────────────────────────────
+         The joint origin below is the `dock_camera` empty (lens centre) from
+         the addon CAD (a2_dock_panel.glb), taken through body_joint and
+         external_body_mesh_joint into this frame: xyz (-0.1445, 0, 0.107),
+         lens looking along chassis -X. It is still worth checking against the
+         real mount, because every docking approach is only as accurate as
+         this transform: the
          detector reports the tag's pose in the optical frame, and this joint
          is the only thing that turns that into a pose in the robot frame. A
          few mm of translation error is survivable; a couple of degrees of
@@ -33,13 +36,10 @@
          lidar.xacro — the values that land here come off a ruler, and
          reading them should not require resolving a property chain.
 
-         TODO(mesh): visual mesh is NOT set up. The addon bracket + camera
-         body are drawn here as a primitive cylinder, the same stand-in
-         camera.xacro uses for the head camera. The real mesh comes from the
-         addon GLB (convert to .obj/.mtl into ../meshes/ and swap the
-         <geometry> below, the way body.xacro's external_body_mesh_link
-         carries body.obj). Cosmetic only — it does not affect the transform
-         above, which is the part that matters.
+         Visual: dock_panel.obj (addon back panel, camera, dock contacts and
+         the relocated DC jack) hangs off external_body_mesh_link at the end
+         of this file. body.xacro drops the plain back panel when the addon is
+         on, so the two panels never overlap.
     -->
     <joint name="docking_camera_joint" type="fixed">
         <parent link="chassis"/>
@@ -47,17 +47,20 @@
         <!-- rpy yaw = pi: the link's +X looks BACKWARD along the chassis,
              because the robot reverses onto the dock (docking.yaml
              dock_backwards: true). -->
-        <!-- x=-0.155: THE LENS MUST SIT OUTSIDE THE ROBOT'S OWN GEOMETRY.
-             There are TWO nested enclosures here and both have to be cleared:
+        <!-- x=-0.1445: THE LENS MUST SIT OUTSIDE THE ROBOT'S OWN GEOMETRY.
+             There are nested enclosures here and all have to be cleared:
 
-               chassis box   ends at x = -0.114  (chassis_length 0.228 / 2)
-               body.obj shell ends at x = -0.1396 AT THIS CAMERA'S HEIGHT
-                                                  (measured from the mesh's own
-                                                   vertices within z +/-0.02 of
-                                                   0.120; the shell's overall
-                                                   bbox reaches -0.157, but that
-                                                   is a different part of the
-                                                   shell, not at this height)
+               chassis box      ends at x = -0.114   (chassis_length 0.228 / 2)
+               body.obj         ends at x = -0.1358  (rear shells; the old
+                                                      -0.157 was the pre-2026-09
+                                                      E-stop, since moved up)
+               dock_panel.obj   ends at x = -0.1445  (lens face and dock
+                                                      contacts; panel itself
+                                                      -0.1435)
+
+             So the sensor sits exactly on the lens face with nothing of the
+             robot in front of it. rear_panel_standard.obj (x to -0.1425) is
+             not loaded when this file is.
 
              The original -0.110 was inside BOTH. A first fix to -0.135 cleared
              the chassis box but was still inside the shell, which is why the
@@ -73,14 +76,10 @@
              Diagnosed 2026-09-23 by logging both cameras over 2.2m of travel:
              face 394-601 unique colours throughout, docking exactly 1.
 
-             -0.155 clears the shell by 15mm at this height. That also matches
-             what the real addon is: a bracket bolted to the BACK of the robot,
-             so the lens genuinely does protrude past the shell.
-
-             DO NOT move it forward of about -0.145. Re-measure on the real
-             mount, and if you change the height, re-run the vertex query above
-             for the new z first; the shell's rear extent varies with z. -->
-        <origin xyz="-0.155 0 0.120" rpy="0 0 ${pi}"/>
+             DO NOT move it forward of -0.1445. If the addon CAD changes, take
+             the new `dock_camera` empty through the same chain and re-check the
+             rear extents above; the shell's rear extent varies with z. -->
+        <origin xyz="-0.1445 0 0.107" rpy="0 0 ${pi}"/>
     </joint>
 
     <!-- Prevent URDF→SDF fixed-joint reduction from lumping this link into
@@ -96,14 +95,8 @@
         <disableFixedJointLumping>true</disableFixedJointLumping>
     </gazebo>
 
+    <!-- No visual: the camera is drawn by dock_panel.obj below. -->
     <link name="docking_camera_link">
-        <visual>
-            <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
-            <geometry>
-                <cylinder radius="0.005" length="0.005"/>
-            </geometry>
-            <material name="black"/>
-        </visual>
         <collision>
             <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
             <geometry>
@@ -165,5 +158,23 @@
             <gz_frame_id>docking_camera_link_optical</gz_frame_id>
         </sensor>
     </gazebo>
+
+    <!-- Addon back panel, camera, dock contacts and relocated DC jack. Same
+         CAD frame and offset as body.obj, so it hangs off the same link
+         instead of the camera joint: moving the camera joint must not drag
+         the panel with it. Visual-only, lumped into body like body.obj. -->
+    <joint name="docking_panel_mesh_joint" type="fixed">
+        <parent link="external_body_mesh_link"/>
+        <child link="docking_panel_mesh_link"/>
+        <origin xyz="0 -0.0125 -0.225" rpy="0 0 0"/>
+    </joint>
+
+    <link name="docking_panel_mesh_link">
+        <visual>
+            <geometry>
+                <mesh filename="package://bonicbot_a2_description/meshes/dock_panel.obj"/>
+            </geometry>
+        </visual>
+    </link>
 
 </robot>

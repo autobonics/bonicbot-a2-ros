@@ -408,5 +408,16 @@
                 <mesh filename="package://bonicbot_a2_description/meshes/body.obj"/>
             </geometry>
         </visual>
+        <!-- Lower back panel + DC jack of a plain A2. Split out of body.obj
+             because the docking addon replaces them with its own panel
+             (dock_panel.obj, drawn by docking_camera.xacro). -->
+        <xacro:unless value="$(arg docking_addon)">
+            <visual>
+                <origin xyz="0 -0.0125 -0.225" rpy="0 0 0"/>
+                <geometry>
+                    <mesh filename="package://bonicbot_a2_description/meshes/rear_panel_standard.obj"/>
+                </geometry>
+            </visual>
+        </xacro:unless>
     </link>
 </robot>
