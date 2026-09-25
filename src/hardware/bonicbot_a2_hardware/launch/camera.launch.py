@@ -55,6 +55,27 @@ def _camera_node(context, *args, **kwargs):
     frame_us = int(round(1_000_000.0 / fps))
 
     params = {
+        # ── Pin WHICH camera. Enumeration order is NOT stable ────────────
+        #
+        # camera_ros picks camera 0 when this is unset, and libcamera
+        # enumerates USB UVC devices alongside the CSI sensor. On a robot that
+        # gained the docking addon's rear USB camera, camera 0 became that
+        # camera and this node died on startup:
+        #
+        #   [face_camera] no camera selected, using default:
+        #                 ".../usb@0,0-1.4:1.0-0abd:8050"
+        #   what():  unsupported pixel format "BGR888"
+        #   process has died, exit code -6
+        #
+        # (Observed on bonicbota2pro-001, 2026-09-24. The USB module offers
+        # MJPEG/YUYV only, so the BGR888 request below aborts the node.) The
+        # face camera silently stopped publishing and nothing said why — the
+        # failure was in the base session log, not anywhere a dashboard looks.
+        #
+        # The CSI sensor's libcamera id is its device-tree path, which is
+        # stable for this board + sensor across boots and reboots, unlike an
+        # index. Overridable for a variant that wires the sensor differently.
+        'camera': LaunchConfiguration('camera'),
         'width': 640,
         'height': 480,
         # libcamera's format names are BYTE-ORDER INVERTED relative to ROS:
@@ -111,6 +132,12 @@ def _camera_node(context, *args, **kwargs):
 
 def generate_launch_description():
 
+    camera_arg = DeclareLaunchArgument(
+        'camera', default_value='/base/soc/i2c0mux/i2c@1/ov5647@36',
+        description="libcamera id of the CSI sensor. Pinned rather than left "
+                    "to enumeration order, which a USB camera changes — see "
+                    "the note in _camera_node()",
+    )
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time', default_value='false',
         description='Use simulation clock',
@@ -121,6 +148,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        camera_arg,
         use_sim_time_arg,
         fps_arg,
         OpaqueFunction(function=_camera_node),

@@ -5,10 +5,13 @@ Started only on robots fitted with the docking addon: hardware.launch.py's
 robot_config.yaml's `addons: {docking: true}`. On a plain A2 this file is never
 included and nothing here exists. See docs/bonicbot_a2_docking.md §1.
 
-Named `docking_camera`, publishing on `/docking_camera/image_raw`. robot_app's
-CAMERAS override already accepts `face=/topic,docking=/topic`, so streaming
-the dock view over WebRTC needs no code change — only the env var on
-addon-fitted robots.
+Named `docking_camera`, publishing on `/docking_camera/image_raw` (and
+`/compressed`, which is why the transports below are trimmed rather than left
+at their defaults). robot_app streams it over WebRTC automatically on an
+addon-fitted robot — its `Settings.cameras` adds a `docking` entry whenever
+the same `DOCKING_ADDON` flag that starts this node is set, so no env var has
+to be kept in agreement with it. `CAMERAS` still overrides the whole set for a
+robot or sim whose topics differ.
 
 
 ── Why usb_cam and not camera_ros ───────────────────────────────────────
@@ -32,6 +35,8 @@ fps buys nothing on an approach measured in tens of seconds, and the head
 camera has already demonstrated on this exact board what an unconstrained
 camera node costs: 105.6% of a core at 30 fps against 17.6% at 6 fps.
 """
+
+import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -62,12 +67,24 @@ def generate_launch_description():
     # worst failure shape available here: it looks like it works and then
     # misses the dock.
     #
-    # Empty default because the file is per-robot and does not exist yet
-    # (`camera_calibration` checkerboard run, Phase 5 step 2). usb_cam warns
-    # once on an empty/missing URL. Treat that warning as blocking before
-    # trusting any docking run.
+    # Defaults into the MAPS VOLUME, not the container filesystem. /maps is a
+    # bind mount; everything else in the container is an image layer that a
+    # `docker compose up` recreate throws away — and a calibration lost that
+    # way does not announce itself, it comes back as a dock attempt that misses
+    # by a few centimetres. usb_cam's own fallback
+    # (~/.ros/camera_info/<camera_name>.yaml) is exactly that kind of
+    # throwaway path, which is why this does not rely on it.
+    #
+    # If the file is absent, usb_cam publishes placeholder intrinsics and warns
+    # with the path it wanted — treat that warning as blocking, because
+    # image_proc's rectify_node then refuses to publish image_rect at all and
+    # apriltag receives nothing (observed on hardware 2026-09-24). A missing
+    # calibration fails loudly, not subtly; do not "fix" it by removing rectify.
+    _maps = os.environ.get('BONICBOT_MAPS_DIR', '/maps')
     camera_info_url_arg = DeclareLaunchArgument(
-        'camera_info_url', default_value='',
+        'camera_info_url',
+        default_value=os.environ.get(
+            'DOCK_CAM_INFO_URL', f'file://{_maps}/calib/docking_camera.yaml'),
         description='file:// URL of this robot\'s docking camera intrinsics. '
                     'Empty = uncalibrated; AprilTag range will be wrong',
     )

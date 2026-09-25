@@ -15,17 +15,18 @@ ARG DEBIAN_FRONTEND=noninteractive
 # image, not just addon-fitted robots: the image is one artifact for the fleet,
 # and an installed driver that nothing launches costs disk, not CPU.
 #
-# opennav_docking entered Nav2 AFTER Humble, so `ros-humble-opennav-docking`
-# may not exist on the arm64 sources this image builds against — in which case
-# THIS BUILD FAILS LOUDLY, which is the intended outcome. Check before relying
-# on it:
+# opennav_docking entered Nav2 AFTER Humble, so whether `ros-humble-opennav-
+# docking` exists on arm64 Humble was an open risk. CHECKED 2026-09-24 against
+# packages.ros.org jammy/binary-arm64 — all present, no source build needed:
 #
-#   apt-cache policy ros-humble-opennav-docking ros-humble-apriltag-ros \
-#                    ros-humble-image-proc ros-humble-usb-cam
+#   opennav-docking 0.0.2   opennav-docking-msgs 0.0.2   opennav-docking-core 0.0.2
+#   apriltag-ros 3.4.0      apriltag-msgs 2.0.2
+#   image-proc 3.0.9        usb-cam 0.8.1
 #
-# If it is unavailable, the fix is a source build of opennav_docking in the
-# workspace (or a newer base image), not dropping the feature. See
-# docs/bonicbot_a2_docking.md §6 Phase 2.
+# apriltag-msgs and opennav-docking-msgs are pulled in as dependencies and are
+# not listed below. If a future base image drops one, this build fails loudly,
+# which is the intended outcome — the fix is a source build in the workspace,
+# not dropping the feature. See docs/bonicbot_a2_docking.md §6 Phase 2.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-ros2-control \
       ros-humble-ros2-controllers \
