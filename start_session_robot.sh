@@ -68,7 +68,7 @@ export USE_SIM_TIME=false
 export ROBOT_SERIES=A
 
 # Per-robot hardware calibration lives in bonicOS-robot-app's robot_config.yaml
-# (hardware: encoder_cpr / wheel_radius), NOT here —
+# (hardware: encoder_cpr / wheel_radius / wheel_separation), NOT here —
 # a calibration number is a fact about this one physical robot, not about
 # a2-ros's code. Read it and export what ros2_control.xacro's $(optenv...)
 # and hardware.launch.py's controller override are wired to pick up. Missing
@@ -89,7 +89,7 @@ except Exception as e:
     print(f'# robot_config.yaml unreadable: {e}', file=sys.stderr)
     hw = {}
     addons = {}
-for k in ('encoder_cpr', 'wheel_radius'):
+for k in ('encoder_cpr', 'wheel_radius', 'wheel_separation'):
     if k in hw and hw[k] is not None:
         print(f'{k}={hw[k]}')
 # Addon FITMENT, not calibration — whether the part exists at all, so it lives
@@ -107,6 +107,11 @@ if addons.get('docking'):
         case "$key" in
             encoder_cpr)  export ENCODER_CPR="$val" ;;
             wheel_radius) export WHEEL_RADIUS="$val" ;;
+            # diff_cont's track width, read by hardware.launch.py. robot_app
+            # already exports it from the same key (config.py _HW_ENV); without
+            # it here, manual bring-up silently ran on controllers.yaml's
+            # nominal value while robot_app bring-up used the calibrated one.
+            wheel_separation) export WHEEL_SEPARATION="$val" ;;
             # Read by robot.urdf.xacro ($(optenv DOCKING_ADDON false), which
             # decides whether the docking camera's links and TF frames exist)
             # and by hardware.launch.py's use_docking_camera default. This
@@ -117,7 +122,7 @@ if addons.get('docking'):
             docking_addon) export DOCKING_ADDON="$val" ;;
         esac
     done <<< "$HW_JSON"
-    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default}"
+    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}${WHEEL_SEPARATION:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default} WHEEL_SEPARATION=${WHEEL_SEPARATION:-default}"
     # Logged unconditionally when set, and deliberately loud: if the docking
     # camera frame is missing later, the first question is whether this line
     # appeared in the session log.
