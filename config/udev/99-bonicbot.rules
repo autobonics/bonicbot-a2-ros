@@ -3,7 +3,6 @@
 # Install with scripts/setup_udev.sh (or copy to /etc/udev/rules.d/ manually).
 #
 # A2 has ONE ESP32-S3 board, so a plain vendor/product match is unambiguous.
-# (M1 carries three boards sharing 303a:1001 and has to disambiguate by serial.)
 #
 # Find your IDs:
 #   udevadm info /dev/ttyACM0 | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL"

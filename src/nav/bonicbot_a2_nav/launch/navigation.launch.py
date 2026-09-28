@@ -56,9 +56,9 @@ def generate_launch_description():
             description='Directory holding saved maps'),
         DeclareLaunchArgument(
             'map_name', default_value='bonicbot_a2_map.yaml',
-            # Extension INCLUDED, matching bonicbot_m1_nav. robot_app's
-            # NavModeManager passes `map_name:=<name>.yaml`, so appending
-            # ".yaml" here would look for "<name>.yaml.yaml".
+            # Extension INCLUDED: robot_app's NavModeManager passes
+            # `map_name:=<name>.yaml`, so appending ".yaml" here would look for
+            # "<name>.yaml.yaml".
             description='Map file name inside maps_dir (including .yaml)'),
     ]
 

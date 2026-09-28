@@ -68,7 +68,7 @@ export USE_SIM_TIME=false
 export ROBOT_SERIES=A
 
 # Per-robot hardware calibration lives in bonicOS-robot-app's robot_config.yaml
-# (hardware: encoder_cpr / wheel_radius), NOT here —
+# (hardware: encoder_cpr / wheel_radius / wheel_separation), NOT here —
 # a calibration number is a fact about this one physical robot, not about
 # a2-ros's code. Read it and export what ros2_control.xacro's $(optenv...)
 # and hardware.launch.py's controller override are wired to pick up. Missing
@@ -86,7 +86,7 @@ except Exception as e:
     import sys
     print(f'# robot_config.yaml hardware block unreadable: {e}', file=sys.stderr)
     hw = {}
-for k in ('encoder_cpr', 'wheel_radius'):
+for k in ('encoder_cpr', 'wheel_radius', 'wheel_separation'):
     if k in hw and hw[k] is not None:
         print(f'{k}={hw[k]}')
 ")
@@ -98,9 +98,14 @@ for k in ('encoder_cpr', 'wheel_radius'):
         case "$key" in
             encoder_cpr)  export ENCODER_CPR="$val" ;;
             wheel_radius) export WHEEL_RADIUS="$val" ;;
+            # diff_cont's track width, read by hardware.launch.py. robot_app
+            # already exports it from the same key (config.py _HW_ENV); without
+            # it here, manual bring-up silently ran on controllers.yaml's
+            # nominal value while robot_app bring-up used the calibrated one.
+            wheel_separation) export WHEEL_SEPARATION="$val" ;;
         esac
     done <<< "$HW_JSON"
-    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default}"
+    [ -n "${ENCODER_CPR:-}${WHEEL_RADIUS:-}${WHEEL_SEPARATION:-}" ] &&         echo "hardware calibration from $ROBOT_CFG: ENCODER_CPR=${ENCODER_CPR:-default} WHEEL_RADIUS=${WHEEL_RADIUS:-default} WHEEL_SEPARATION=${WHEEL_SEPARATION:-default}"
 
 # No camera flip key, and nothing to export for one. It was parsed here and
 # exported as CAMERA_VERTICAL_FLIP, which no launch file has read since the

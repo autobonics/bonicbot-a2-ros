@@ -294,8 +294,8 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
     wifi_status_payload_.assign(cdc_protocol::WIFI_STATUS_PAYLOAD_SIZE, 0);
   }
 
-  face_matrix_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
-    "/face/matrix_action", 10,
+  face_display_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
+    "/face/display_action", 10,
     [this](const std_msgs::msg::UInt8MultiArray::SharedPtr msg) {
       // Raw pass-through — byte 0 is the action code, rest is that action's
       // own payload (spec §4). No interpretation here: expression/animation
@@ -316,7 +316,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   RCLCPP_INFO(
     rclcpp::get_logger(kLogger),
     "Publishing /imu/data, /battery_state, /esp/wifi_credentials; "
-    "subscribed /esp/wifi_status, /face/matrix_action");
+    "subscribed /esp/wifi_status, /face/display_action");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -336,7 +336,7 @@ void EspHardwareInterface::stopInternalNode()
   wifi_status_subscription_.reset();
   shutdown_publisher_.reset();
   shutdown_request_subscription_.reset();
-  face_matrix_subscription_.reset();
+  face_display_subscription_.reset();
   node_.reset();
 }
 
@@ -554,7 +554,7 @@ hardware_interface::return_type EspHardwareInterface::write(
     return hardware_interface::return_type::OK;
   }
 
-  // Face LED matrix: fire-and-forget, only when /face/matrix_action actually
+  // Face display: fire-and-forget, only when /face/display_action actually
   // publishes something — no per-cycle traffic like the sensors/servos above.
   if (matrix_action_pending_) {
     std::vector<uint8_t> action;
@@ -564,7 +564,7 @@ hardware_interface::return_type EspHardwareInterface::write(
       matrix_action_pending_ = false;
     }
     if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
-      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face matrix command write failed");
+      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face display command write failed");
     }
   }
 
