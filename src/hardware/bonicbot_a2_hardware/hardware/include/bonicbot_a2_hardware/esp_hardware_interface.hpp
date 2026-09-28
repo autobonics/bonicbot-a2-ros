@@ -197,7 +197,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr battery_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr wifi_credentials_publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr wifi_status_subscription_;
-  rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_matrix_subscription_;
+  rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_display_subscription_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr shutdown_publisher_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr shutdown_request_subscription_;
   rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
@@ -222,7 +222,7 @@ private:
   /// a subscription callback may only raise the flag.
   std::atomic<bool> shutdown_push_pending_{false};
 
-  /// Raw CMD_MATRIX_ACTION payload from /face/matrix_action — byte 0 is the
+  /// Raw CMD_MATRIX_ACTION payload from /face/display_action — byte 0 is the
   /// action code, the rest is that action's own layout (spec §4). This is a
   /// dumb pipe: this repo doesn't interpret expressions, just forwards bytes.
   /// Written by the subscription callback on the spin thread, sent from
