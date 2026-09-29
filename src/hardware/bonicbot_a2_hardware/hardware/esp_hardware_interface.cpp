@@ -19,9 +19,13 @@ namespace
 {
 constexpr const char * kLogger = "EspHardwareInterface";
 
-// Face actions held between two control cycles — far more than one face change
-// needs (text + mode + play is three), small enough that a flood stays bounded.
-constexpr size_t kMaxPendingMatrixActions = 16;
+// Face actions held between two control cycles. One face change is at most
+// four (clear + frame + play), but display_pixel is not rate-limited by
+// robot_app and a program drawing pixel by pixel on the robot itself can land
+// dozens (two per pixel) inside one 20 ms cycle. Big enough that such a loop
+// never loses a pixel, small enough that a flood stays bounded; each action is
+// a few bytes except a frame (~250), and frames are rate-limited upstream.
+constexpr size_t kMaxPendingMatrixActions = 128;
 constexpr double kDegToRad = M_PI / 180.0;
 constexpr double kRadToDeg = 180.0 / M_PI;
 
