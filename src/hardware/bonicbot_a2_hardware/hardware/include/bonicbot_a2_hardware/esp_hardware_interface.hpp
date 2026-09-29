@@ -176,6 +176,10 @@ private:
   float imu_ax_ = 0.0f, imu_ay_ = 0.0f, imu_az_ = 0.0f;   // m/s^2
   float imu_gx_ = 0.0f, imu_gy_ = 0.0f, imu_gz_ = 0.0f;   // rad/s (converted on parse)
   bool imu_data_ready_ = false;
+  // Dead-IMU gate (processImu): whether /imu/data is currently published, and
+  // how many consecutive samples have disagreed with that.
+  bool imu_alive_ = false;
+  int imu_flip_count_ = 0;
   int imu_decimator_ = 0;
   std::string imu_frame_id_ = "imu_link";
 

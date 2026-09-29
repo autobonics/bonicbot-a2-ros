@@ -980,6 +980,12 @@ void EspHardwareInterface::processPacket(
 //  Response handlers
 // ════════════════════════════════════════════════════════════════════
 
+// A real IMU always measures gravity (9.81 m/s^2); well below this, the sensor
+// is absent or dead. Generous, so hard braking or a bump never trips it.
+constexpr double kImuMinAccel = 4.0;       // m/s^2
+// Consecutive samples (at ~25 Hz) needed to switch the dead-IMU gate.
+constexpr int kImuFlipSamples = 5;
+
 void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
 {
   if (length != cdc_protocol::IMU_PAYLOAD_SIZE) {
@@ -1003,7 +1009,40 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   imu_gz_ = static_cast<float>(gz_dps * kDegToRad);
   imu_data_ready_ = true;
 
-  if (!imu_publisher_) {
+  // Dead-IMU gate. The firmware sends all zeros when it has no working IMU
+  // (readIMU() on a sensor that failed WHO_AM_I), and publishing those was
+  // dangerous: ekf.yaml fuses this gyro's yaw rate with a variance (below)
+  // tighter than the wheels', so a steady "0 rad/s" told the EKF the robot
+  // barely turns, dragging heading against the wheels on every rotation. A
+  // real IMU always measures gravity, so an accelerometer magnitude far below
+  // 9.81 m/s^2 means the sensor is not there. Then nothing is published,
+  // which the EKF handles as a missing IMU: heading comes from the wheel
+  // odometry alone. A few consecutive samples are needed to switch either
+  // way, so one bad packet cannot flap it.
+  {
+    const double a2 = static_cast<double>(imu_ax_) * imu_ax_ +
+      static_cast<double>(imu_ay_) * imu_ay_ + static_cast<double>(imu_az_) * imu_az_;
+    const bool sane = std::isfinite(a2) && std::isfinite(gz_dps) &&
+      a2 > kImuMinAccel * kImuMinAccel;
+    if (sane == imu_alive_) {
+      imu_flip_count_ = 0;
+    } else if (++imu_flip_count_ >= kImuFlipSamples) {
+      imu_alive_ = sane;
+      imu_flip_count_ = 0;
+      if (sane) {
+        RCLCPP_INFO(
+          rclcpp::get_logger(kLogger), "IMU data valid — publishing /imu/data");
+      } else {
+        RCLCPP_WARN(
+          rclcpp::get_logger(kLogger),
+          "IMU reports no gravity (|a| = %.2f m/s^2) — treating it as missing: "
+          "/imu/data is NOT published, and the EKF uses wheel odometry for "
+          "heading. Check the ESP's IMU.", std::sqrt(a2));
+      }
+    }
+  }
+
+  if (!imu_publisher_ || !imu_alive_) {
     return;
   }
 
