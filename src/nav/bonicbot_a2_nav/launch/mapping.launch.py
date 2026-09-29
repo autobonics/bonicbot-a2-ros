@@ -19,8 +19,6 @@ The navigation-mode counterpart is navigation.launch.py with slam:=false, run
 directly by NavModeManager — no composite is needed there because that launch
 already bundles map_server + AMCL + the Nav2 core.
 
-Mirrors bonicbot_m1_nav/launch/mapping.launch.py; robot_app drives both series
-through the same interface.
 """
 
 import os

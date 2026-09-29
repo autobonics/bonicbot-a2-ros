@@ -294,8 +294,8 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
     wifi_status_payload_.assign(cdc_protocol::WIFI_STATUS_PAYLOAD_SIZE, 0);
   }
 
-  face_matrix_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
-    "/face/matrix_action", 10,
+  face_display_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
+    "/face/display_action", 10,
     [this](const std_msgs::msg::UInt8MultiArray::SharedPtr msg) {
       // Raw pass-through — byte 0 is the action code, rest is that action's
       // own payload (spec §4). No interpretation here: expression/animation
@@ -316,7 +316,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   RCLCPP_INFO(
     rclcpp::get_logger(kLogger),
     "Publishing /imu/data, /battery_state, /esp/wifi_credentials; "
-    "subscribed /esp/wifi_status, /face/matrix_action");
+    "subscribed /esp/wifi_status, /face/display_action");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -336,7 +336,7 @@ void EspHardwareInterface::stopInternalNode()
   wifi_status_subscription_.reset();
   shutdown_publisher_.reset();
   shutdown_request_subscription_.reset();
-  face_matrix_subscription_.reset();
+  face_display_subscription_.reset();
   node_.reset();
 }
 
@@ -554,7 +554,7 @@ hardware_interface::return_type EspHardwareInterface::write(
     return hardware_interface::return_type::OK;
   }
 
-  // Face LED matrix: fire-and-forget, only when /face/matrix_action actually
+  // Face display: fire-and-forget, only when /face/display_action actually
   // publishes something — no per-cycle traffic like the sensors/servos above.
   if (matrix_action_pending_) {
     std::vector<uint8_t> action;
@@ -564,7 +564,7 @@ hardware_interface::return_type EspHardwareInterface::write(
       matrix_action_pending_ = false;
     }
     if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
-      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face matrix command write failed");
+      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face display command write failed");
     }
   }
 
@@ -980,6 +980,12 @@ void EspHardwareInterface::processPacket(
 //  Response handlers
 // ════════════════════════════════════════════════════════════════════
 
+// A real IMU always measures gravity (9.81 m/s^2); well below this, the sensor
+// is absent or dead. Generous, so hard braking or a bump never trips it.
+constexpr double kImuMinAccel = 4.0;       // m/s^2
+// Consecutive samples (at ~25 Hz) needed to switch the dead-IMU gate.
+constexpr int kImuFlipSamples = 5;
+
 void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
 {
   if (length != cdc_protocol::IMU_PAYLOAD_SIZE) {
@@ -1003,7 +1009,40 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   imu_gz_ = static_cast<float>(gz_dps * kDegToRad);
   imu_data_ready_ = true;
 
-  if (!imu_publisher_) {
+  // Dead-IMU gate. The firmware sends all zeros when it has no working IMU
+  // (readIMU() on a sensor that failed WHO_AM_I), and publishing those was
+  // dangerous: ekf.yaml fuses this gyro's yaw rate with a variance (below)
+  // tighter than the wheels', so a steady "0 rad/s" told the EKF the robot
+  // barely turns, dragging heading against the wheels on every rotation. A
+  // real IMU always measures gravity, so an accelerometer magnitude far below
+  // 9.81 m/s^2 means the sensor is not there. Then nothing is published,
+  // which the EKF handles as a missing IMU: heading comes from the wheel
+  // odometry alone. A few consecutive samples are needed to switch either
+  // way, so one bad packet cannot flap it.
+  {
+    const double a2 = static_cast<double>(imu_ax_) * imu_ax_ +
+      static_cast<double>(imu_ay_) * imu_ay_ + static_cast<double>(imu_az_) * imu_az_;
+    const bool sane = std::isfinite(a2) && std::isfinite(gz_dps) &&
+      a2 > kImuMinAccel * kImuMinAccel;
+    if (sane == imu_alive_) {
+      imu_flip_count_ = 0;
+    } else if (++imu_flip_count_ >= kImuFlipSamples) {
+      imu_alive_ = sane;
+      imu_flip_count_ = 0;
+      if (sane) {
+        RCLCPP_INFO(
+          rclcpp::get_logger(kLogger), "IMU data valid — publishing /imu/data");
+      } else {
+        RCLCPP_WARN(
+          rclcpp::get_logger(kLogger),
+          "IMU reports no gravity (|a| = %.2f m/s^2) — treating it as missing: "
+          "/imu/data is NOT published, and the EKF uses wheel odometry for "
+          "heading. Check the ESP's IMU.", std::sqrt(a2));
+      }
+    }
+  }
+
+  if (!imu_publisher_ || !imu_alive_) {
     return;
   }
 
