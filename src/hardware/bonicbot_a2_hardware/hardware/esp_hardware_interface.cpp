@@ -18,6 +18,10 @@ namespace bonicbot_a2_hardware
 namespace
 {
 constexpr const char * kLogger = "EspHardwareInterface";
+
+// Face actions held between two control cycles — far more than one face change
+// needs (text + mode + play is three), small enough that a flood stays bounded.
+constexpr size_t kMaxPendingMatrixActions = 16;
 constexpr double kDegToRad = M_PI / 180.0;
 constexpr double kRadToDeg = 180.0 / M_PI;
 
@@ -305,7 +309,12 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
         return;
       }
       std::lock_guard<std::mutex> lock(matrix_action_mutex_);
-      pending_matrix_action_ = msg->data;
+      // Bounded: a publisher flooding the topic drops its oldest actions,
+      // never the newest, and never grows this without limit.
+      if (pending_matrix_actions_.size() >= kMaxPendingMatrixActions) {
+        pending_matrix_actions_.pop_front();
+      }
+      pending_matrix_actions_.push_back(msg->data);
       matrix_action_pending_ = true;
     });
 
@@ -557,14 +566,19 @@ hardware_interface::return_type EspHardwareInterface::write(
   // Face display: fire-and-forget, only when /face/display_action actually
   // publishes something — no per-cycle traffic like the sensors/servos above.
   if (matrix_action_pending_) {
-    std::vector<uint8_t> action;
+    std::deque<std::vector<uint8_t>> actions;
     {
       std::lock_guard<std::mutex> lock(matrix_action_mutex_);
-      action = std::move(pending_matrix_action_);
+      actions.swap(pending_matrix_actions_);
       matrix_action_pending_ = false;
     }
-    if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
-      RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face display command write failed");
+    // In publish order — SET_TEXT must reach the ESP before the
+    // SET_ANIMATION that shows it.
+    for (const auto & action : actions) {
+      if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
+        RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face display command write failed");
+        break;
+      }
     }
   }
 

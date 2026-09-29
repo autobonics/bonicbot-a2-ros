@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -232,7 +233,11 @@ private:
   /// Written by the subscription callback on the spin thread, sent from
   /// write() on the control thread — same split as the Wi-Fi payload above,
   /// because only the control thread may touch the serial fd.
-  std::vector<uint8_t> pending_matrix_action_;
+  ///
+  /// A queue, not a single slot: one face change is often several actions
+  /// published back to back (SET_TEXT, SET_ANIMATION, PLAY), all landing
+  /// within one 20 ms control cycle — a slot kept only the last of them.
+  std::deque<std::vector<uint8_t>> pending_matrix_actions_;
   std::atomic<bool> matrix_action_pending_{false};
   std::mutex matrix_action_mutex_;
 };
