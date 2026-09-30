@@ -13,6 +13,9 @@ controllers.
 """
 
 import os
+import tempfile
+
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -113,8 +116,32 @@ def generate_launch_description():
         diff_cont_overrides['wheel_separation'] = \
             float(os.environ['WHEEL_SEPARATION'])
     if diff_cont_overrides:
-        controller_manager_params.append(
-            {'diff_cont': {'ros__parameters': diff_cont_overrides}})
+        # As a YAML FILE shaped like controllers.yaml, NOT as a dict. A dict
+        # in `parameters` becomes parameters of ros2_control_node itself, with
+        # the nesting flattened into the name — the robot got
+        # "diff_cont.ros__parameters.wheel_separation: 0.15" on the
+        # controller_manager, which nothing reads, while diff_cont kept
+        # controllers.yaml's value (found on A2, 2026-09-30: config 0.15,
+        # diff_cont 0.2895). A params FILE is what ros2_control forwards to the
+        # controllers, the same way controllers.yaml reaches them. Loaded after
+        # controllers.yaml, so these keys win.
+        #
+        # ONE fixed file, overwritten on every start (temp file + rename, so a
+        # reader never sees it half-written), not a new temp file per start:
+        # inside the A2 container /tmp survives reboots, and uniquely named
+        # files piled up there, one per base-stack start. Only one base stack
+        # runs at a time, and the previous one has exited before the next
+        # launch rewrites this.
+        overrides_path = os.path.join(
+            tempfile.gettempdir(), 'bonicbot_a2_diff_cont_overrides.yaml')
+        with tempfile.NamedTemporaryFile(
+                'w', dir=os.path.dirname(overrides_path),
+                prefix='.diff_cont_overrides_', suffix='.yaml',
+                delete=False) as tmp:
+            yaml.safe_dump(
+                {'diff_cont': {'ros__parameters': diff_cont_overrides}}, tmp)
+        os.replace(tmp.name, overrides_path)
+        controller_manager_params.append(overrides_path)
 
     controller_manager = Node(
         package='controller_manager',
