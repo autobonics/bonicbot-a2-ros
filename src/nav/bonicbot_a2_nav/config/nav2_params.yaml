@@ -346,10 +346,19 @@ local_costmap:
       # a circular footprint can only mean the robot was already inside the
       # lethal band.
       #
-      # 0.114 x 0.1723 half-extents: chassis_length 0.228, and wheel span
-      # (wheel_offset_y 0.14475 + wheel_thickness/2 0.0275), the wheels being
-      # the widest point rather than the body.
-      footprint: "[[0.114, 0.1723], [0.114, -0.1723], [-0.114, -0.1723], [-0.114, 0.1723]]"
+      # 0.114 x 0.1875 half-extents: chassis_length 0.228, and the wheel span,
+      # the wheels being the widest point rather than the body.
+      #
+      # Half-width 0.1875 (2026-10-01, was 0.1723) covers the WIDEST wheel
+      # separation an A2 is built with: 0.32 m / 2 + wheel_thickness/2 0.0275.
+      # wheel_separation is per robot (robot_config.yaml hardware.
+      # wheel_separation -> diff_cont, see hardware.launch.py) and this
+      # footprint does not follow it. 0.1723 was the nominal 0.2895 track, and a
+      # robot provisioned at 0.3185 had its wheels ~15 mm outside it on each
+      # side, so they could clip in tight passages. A narrower robot just gets a
+      # slightly conservative footprint. A track wider than 0.32 m needs this
+      # raised.
+      footprint: "[[0.114, 0.1875], [0.114, -0.1875], [-0.114, -0.1875], [-0.114, 0.1875]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
