@@ -54,7 +54,7 @@ PATTERNS=(
   "ros2_control_node|controller_manager|spawner"
   "twist_mux"
   # topic_tools relays (joint_states throttle). MUST be listed explicitly:
-  # the binary lives in /opt/ros/humble/lib/topic_tools/, so neither the
+  # the binary lives in /opt/ros/jazzy/lib/topic_tools/, so neither the
   # "$WS/install" nor the "ros2 launch bonicbot_a2" pattern matches it, and a
   # surviving throttle is invisible until you notice /joint_states_throttled
   # running at a multiple of 10 Hz — N orphans publish N interleaved streams
@@ -66,7 +66,9 @@ PATTERNS=(
   "amcl|map_server|planner_server|controller_server|bt_navigator"
   "behavior_server|smoother_server|waypoint_follower|velocity_smoother"
   "lifecycle_manager"
-  "rplidar|v4l2_camera"
+  # camera_ros runs out of /opt/ros, so the install-tree pattern misses it,
+  # and a survivor keeps the CSI sensor open for the next session.
+  "rplidar|v4l2_camera|camera_ros/camera_node"
   "vision_pipeline.py|object_follower.py"
 )
 

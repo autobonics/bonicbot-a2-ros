@@ -1,8 +1,8 @@
 """BonicBot A2 hardware bringup — everything that touches /dev/*.
 
 Starts robot_state_publisher, the ros2_control controller_manager bound to the
-ESP32-S3 USB CDC interface, all seven controllers, twist_mux, the RPLIDAR and
-(optionally) the CSI camera.
+ESP32-S3 USB CDC interface, all seven controllers, twist_mux and the
+cmd_vel_stamper behind it, the RPLIDAR and (optionally) the CSI camera.
 
 Navigation runs separately:
     ros2 launch bonicbot_a2_nav bringup.launch.py
@@ -23,9 +23,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -36,7 +35,7 @@ def generate_launch_description():
 
     use_camera_arg = DeclareLaunchArgument(
         'use_camera', default_value='true',
-        description='Start the CSI camera (v4l2_camera on /dev/video0)',
+        description='Start the CSI camera (camera_ros / libcamera)',
     )
     use_lidar_arg = DeclareLaunchArgument(
         'use_lidar', default_value='true',
@@ -62,16 +61,16 @@ def generate_launch_description():
     )
 
     # ── robot description ────────────────────────────────────────
-    # sim_mode:=false selects the ESP hardware interface in ros2_control.xacro.
-    xacro_file = os.path.join(description_share, 'urdf', 'robot.urdf.xacro')
-    # See rsp.launch.py for why ParameterValue(value_type=str) is required here:
-    # without it launch_ros YAML-parses the URDF string, and any ": " in the
-    # generated XML (comments included) aborts the launch with a message that
-    # blames robot_description instead of the comment.
-    robot_description = ParameterValue(
-        Command(['xacro ', xacro_file, ' use_ros2_control:=true sim_mode:=false']),
-        value_type=str)
-
+    # rsp.launch.py runs xacro with sim_mode:=false here (it follows
+    # use_sim_time), which selects the ESP hardware interface in
+    # ros2_control.xacro, and publishes the result on /robot_description.
+    #
+    # That topic is now the ONLY way the controller_manager gets the URDF. On
+    # Jazzy it subscribes to /robot_description (transient local, so a late
+    # subscriber still gets it) and the robot_description PARAMETER is no
+    # longer read, so it is not passed below. The manager starts with no
+    # hardware and logs "Waiting for data on 'robot_description' topic" until
+    # rsp publishes; its services, and so the spawners, wait for that.
     rsp = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [os.path.join(description_share, 'launch', 'rsp.launch.py')]),
@@ -102,10 +101,10 @@ def generate_launch_description():
     # links for TF and drives the Gazebo plugin, neither of which feeds the
     # odometry this calibrates — exactly as that file's own `wheel_radius`
     # property is left alone by the WHEEL_RADIUS override above.
-    controller_manager_params = [
-        {'robot_description': robot_description},
-        os.path.join(pkg_share, 'config', 'controllers.yaml'),
-    ]
+    controllers_yaml = os.path.join(pkg_share, 'config', 'controllers.yaml')
+    controller_manager_params = [controllers_yaml]
+    # Per-controller parameter files for the spawners — see spawner() below.
+    controller_param_files = {}
     # Gathered into ONE override dict rather than appended one per key, so the
     # overrides remain a single parameter source however many are provisioned.
     # With no env vars set the list is untouched and behaviour is unchanged.
@@ -142,6 +141,7 @@ def generate_launch_description():
                 {'diff_cont': {'ros__parameters': diff_cont_overrides}}, tmp)
         os.replace(tmp.name, overrides_path)
         controller_manager_params.append(overrides_path)
+        controller_param_files['diff_cont'] = [overrides_path]
 
     controller_manager = Node(
         package='controller_manager',
@@ -150,12 +150,24 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Each spawner also hands its controller the parameter files itself
+    # (--param-file). On Jazzy the controllers are created with
+    # use_global_arguments=false, and ros2_control's migration notes make the
+    # spawner the documented way to load a controller's parameters. The
+    # controller_manager still forwards its own files too, so a controller can
+    # receive controllers.yaml twice. That is harmless as long as the ORDER
+    # holds: the overrides file comes after controllers.yaml in both lists, so
+    # it still wins for diff_cont's wheel_radius and wheel_separation.
     def spawner(name):
+        param_args = []
+        for path in [controllers_yaml] + controller_param_files.get(name, []):
+            param_args += ['--param-file', path]
         return Node(
             package='controller_manager',
             executable='spawner',
             arguments=[
                 name,
+                *param_args,
                 '--controller-manager-timeout', '120',
                 '--switch-timeout', '50',
                 # All seven spawners fire at once against a controller_manager
@@ -176,13 +188,27 @@ def generate_launch_description():
             parameters=[{'use_sim_time': False}],
         )
 
-    # ── twist_mux ────────────────────────────────────────────────
+    # ── twist_mux -> cmd_vel_stamper -> diff_cont ────────────────
+    # Jazzy's diff_cont takes TwistStamped only, on /diff_cont/cmd_vel. twist_mux
+    # keeps arbitrating plain Twist (twist_mux.yaml, use_stamped: false), and
+    # cmd_vel_stamper stamps the winner on its way into the controller. Only
+    # this file and sim.launch.py use /cmd_vel_muxed; robot_app still publishes
+    # Twist on /cmd_vel exactly as before.
     twist_mux = Node(
         package='twist_mux',
         executable='twist_mux',
         parameters=[os.path.join(pkg_share, 'config', 'twist_mux.yaml'),
                     {'use_sim_time': False}],
-        remappings=[('/cmd_vel_out', '/diff_cont/cmd_vel_unstamped')],
+        remappings=[('/cmd_vel_out', '/cmd_vel_muxed')],
+    )
+
+    cmd_vel_stamper = Node(
+        package='bonicbot_a2_hardware',
+        executable='cmd_vel_stamper',
+        name='cmd_vel_stamper',
+        parameters=[{'use_sim_time': False}],
+        remappings=[('cmd_vel_in', '/cmd_vel_muxed'),
+                    ('cmd_vel_out', '/diff_cont/cmd_vel')],
     )
 
     # joint_state_broadcaster publishes at the controller_manager update rate
@@ -248,6 +274,7 @@ def generate_launch_description():
         spawner('right_gripper_controller'),
         joint_states_throttle,
         twist_mux,
+        cmd_vel_stamper,
         rplidar,
         camera,
         joystick,

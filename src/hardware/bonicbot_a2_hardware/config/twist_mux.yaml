@@ -1,5 +1,10 @@
 twist_mux:
   ros__parameters:
+    # Jazzy's twist_mux (4.5) defaults to TwistStamped on every input and its
+    # output when this is unset. Every publisher into it — robot_app,
+    # velocity_smoother, teleop_twist_joy — sends plain Twist, so it must stay
+    # unstamped; cmd_vel_stamper converts the output for diff_cont.
+    use_stamped: false
     topics:
       navigation:
         topic   : cmd_vel

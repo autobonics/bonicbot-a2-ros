@@ -33,10 +33,8 @@ def generate_launch_description():
     # package's share dir, not the share dir itself.
     description_share_parent = os.path.dirname(description_share)
 
-    set_ign_resource_path = SetEnvironmentVariable(
-        name='IGN_GAZEBO_RESOURCE_PATH',
-        value=description_share_parent,
-    )
+    # Harmonic (Jazzy's Gazebo) reads GZ_SIM_RESOURCE_PATH only; the
+    # IGN_GAZEBO_RESOURCE_PATH that Fortress also read is gone.
     set_gz_resource_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
         value=description_share_parent,
@@ -50,7 +48,7 @@ def generate_launch_description():
     use_real_camera_arg = DeclareLaunchArgument(
         'use_real_camera',
         default_value='False',
-        description='Use a real webcam via v4l2_camera (True) or the Gazebo camera bridge (False)',
+        description='Use a real camera via camera_ros (True) or the Gazebo camera bridge (False)',
     )
     use_real_camera = LaunchConfiguration('use_real_camera')
 
@@ -70,12 +68,25 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': 'true'}.items(),
     )
 
+    # Same chain as hardware.launch.py: twist_mux arbitrates plain Twist and
+    # cmd_vel_stamper turns the winner into the TwistStamped diff_cont needs.
+    # The stamper MUST be on sim time — diff_cont ages each command against
+    # the /clock it runs on, and a wall-clock stamp would be dropped as stale.
     twist_mux = Node(
         package='twist_mux',
         executable='twist_mux',
         parameters=[os.path.join(hardware_share, 'config', 'twist_mux.yaml'),
                     {'use_sim_time': True}],
-        remappings=[('/cmd_vel_out', '/diff_cont/cmd_vel_unstamped')],
+        remappings=[('/cmd_vel_out', '/cmd_vel_muxed')],
+    )
+
+    cmd_vel_stamper = Node(
+        package='bonicbot_a2_hardware',
+        executable='cmd_vel_stamper',
+        name='cmd_vel_stamper',
+        parameters=[{'use_sim_time': True}],
+        remappings=[('cmd_vel_in', '/cmd_vel_muxed'),
+                    ('cmd_vel_out', '/diff_cont/cmd_vel')],
     )
 
     # ── Gazebo ───────────────────────────────────────────────────
@@ -137,12 +148,17 @@ def generate_launch_description():
     )
 
     # ── controllers (identical set to hardware.launch.py) ────────
+    # --param-file for the same reason as hardware.launch.py: on Jazzy the
+    # spawner is the documented way to give a controller its parameters.
+    controllers_yaml = os.path.join(hardware_share, 'config', 'controllers.yaml')
+
     def spawner(name):
         return Node(
             package='controller_manager',
             executable='spawner',
             arguments=[
                 name,
+                '--param-file', controllers_yaml,
                 '--controller-manager-timeout', '120',
                 '--switch-timeout', '50',
                 # See hardware.launch.py for why --service-call-timeout is raised:
@@ -164,13 +180,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        set_ign_resource_path,
         set_gz_resource_path,
         world_arg,
         use_real_camera_arg,
         rsp,
         joystick,
         twist_mux,
+        cmd_vel_stamper,
         gazebo,
         spawn_entity,
         bridge,

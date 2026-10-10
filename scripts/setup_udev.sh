@@ -62,8 +62,8 @@ real vendor/product IDs and update config/udev/99-bonicbot.rules:
 The IDs in the shipped rules file are the common defaults, not guaranteed for
 this unit.
 
-/dev/video0 needs no rule and is NOT a sign the camera is usable: on Ubuntu
-22.04's libcamera stack it is the raw `unicam` CSI receiver, which streams only
+/dev/video0 needs no rule and is NOT a sign the camera is usable: it is the
+raw CSI receiver (`unicam` on a Pi 4, `rp1-cfe` on a Pi 5), which streams only
 the sensor's native Bayer format (GB10 on the ov5647) and nothing else. The
 camera is driven through libcamera (camera_ros), not v4l2_camera. To check the
 camera itself, launch it and watch the topic rather than trusting this symlink:

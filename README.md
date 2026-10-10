@@ -1,8 +1,9 @@
 # bonicbot-a2-ros
 
-ROS2 Humble stack for the **BonicBot A2 Pro** — differential-drive base with two arms,
-grippers and a neck, driven by an ESP32-S3 over USB CDC, on a Raspberry Pi 4.
+ROS2 Jazzy stack for the **BonicBot A2 Pro** — differential-drive base with two arms,
+grippers and a neck, driven by an ESP32-S3 over USB CDC, on a Raspberry Pi.
 
+- **Humble → Jazzy port, and Pi 5 bare-metal bring-up:** [JAZZY_MIGRATION.md](./JAZZY_MIGRATION.md)
 - **Restructure / protocol migration:** [bonicbot_a2_restructure_plan.md](./docs/bonicbot_a2_restructure_plan.md)
 
 > **Verified in simulation** (2026-08-23): builds clean, all seven controllers activate,
@@ -88,7 +89,7 @@ stream on a real robot, weeks later, with nothing in the system able to say why.
 2.1.0
 commit=20f2d795a233eebd2c29a65ef7dd3bbf69b33349
 built=2026-09-11T13:40:00Z
-distro=humble
+distro=jazzy
 ```
 
 `commit` is the field that matters: it is what makes a tag traceable back to
@@ -318,15 +319,17 @@ timeout 10 ros2 topic hz /face_camera/image_raw   # expect ~6, not 30
 ```
 
 **SSH freezes while `top` shows the Pi idle** — that is the network, not the CPU. Raw
-camera frames are ~5.5 MB/s, and if `ROS_LOCALHOST_ONLY` is unset, DDS pushes them over
-WiFi to every subscriber on the network. An RViz session on another machine will do it:
+camera frames are ~5.5 MB/s, and if discovery is not limited to localhost, DDS pushes
+them over WiFi to every subscriber on the network. An RViz session on another machine will
+do it:
 
 ```bash
-echo "ROS_LOCALHOST_ONLY=$ROS_LOCALHOST_ONLY"   # should be 1 on the robot
+echo "ROS_AUTOMATIC_DISCOVERY_RANGE=$ROS_AUTOMATIC_DISCOVERY_RANGE"   # LOCALHOST on the robot
 ```
 
-Set it to `1` for robot-only operation. If you genuinely need RViz from a dev machine,
-leave it unset but subscribe to `/face_camera/image_raw/compressed` rather than
+Set it to `LOCALHOST` for robot-only operation (Jazzy still accepts the older
+`ROS_LOCALHOST_ONLY=1`, with a deprecation warning). If you genuinely need RViz from a dev
+machine, leave it unset but subscribe to `/face_camera/image_raw/compressed` rather than
 `image_raw` — roughly 50x less data over the link.
 
 ---

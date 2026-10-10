@@ -68,18 +68,17 @@
         <state_interface name="velocity"/>
       </joint>
       
-      <!-- Grippers - Mimic fingers -->
+      <!-- Grippers - Mimic fingers. On Jazzy the mimic relation comes from the
+           URDF <mimic> tag on these joints (gripper.xacro) and the old
+           mimic/multiplier params here are no longer read. A joint with a URDF
+           mimic must have NO command interface in this tag: ros2_control
+           refuses to load the whole system otherwise ("Activated mimic joints
+           cannot have command interfaces"), so no controller comes up. -->
       <joint name="left_gripper_finger2_joint">
-        <param name="mimic">left_gripper_finger1_joint</param>
-        <param name="multiplier">1</param>
-        <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
       <joint name="right_gripper_finger2_joint">
-        <param name="mimic">right_gripper_finger1_joint</param>
-        <param name="multiplier">1</param>
-        <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>

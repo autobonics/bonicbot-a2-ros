@@ -18,6 +18,8 @@
   <exec_depend>nav2_amcl</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
+  <!-- slam.launch.py drives slam_toolbox's lifecycle transitions itself -->
+  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <exec_depend>bonicbot_a2_description</exec_depend>
   <!-- base.launch.py composes hardware.launch.py with this package's

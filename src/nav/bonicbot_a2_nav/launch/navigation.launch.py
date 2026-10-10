@@ -124,8 +124,10 @@ def generate_launch_description():
     # ── navigation: always ───────────────────────────────────────
     # Velocity chain, matching upstream nav2_bringup's remappings:
     #     controller_server --cmd_vel_nav--> velocity_smoother --cmd_vel--> twist_mux
-    # twist_mux then arbitrates against /cmd_vel_joy (joystick wins) and forwards
-    # the winner to /diff_cont/cmd_vel_unstamped.
+    # twist_mux then arbitrates against /cmd_vel_joy (joystick wins), and
+    # cmd_vel_stamper hands the winner to diff_cont as TwistStamped
+    # (hardware.launch.py). Nav2 itself stays on plain Twist: its
+    # enable_stamped_cmd_vel defaults to false on Jazzy.
     nav2_nodes = [
         ('nav2_controller', 'controller_server', 'controller_server',
          [('cmd_vel', 'cmd_vel_nav')]),

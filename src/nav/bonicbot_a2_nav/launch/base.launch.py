@@ -49,7 +49,7 @@ def generate_launch_description():
     declare_args = [
         DeclareLaunchArgument(
             'use_camera', default_value='true',
-            description='Start the CSI camera (v4l2_camera on /dev/video0)'),
+            description='Start the CSI camera (camera_ros / libcamera)'),
         DeclareLaunchArgument(
             'use_lidar', default_value='true',
             description='Start the RPLIDAR C1M1 (/dev/lidar)'),

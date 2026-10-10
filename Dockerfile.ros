@@ -7,30 +7,31 @@
 #
 # The sim package is deliberately NOT built here — Gazebo never runs on the robot.
 
-FROM ros:humble-ros-base
+FROM ros:jazzy-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ros-humble-ros2-control \
-      ros-humble-ros2-controllers \
-      ros-humble-controller-manager \
-      ros-humble-diff-drive-controller \
-      ros-humble-joint-state-broadcaster \
-      ros-humble-position-controllers \
-      ros-humble-twist-mux \
-      ros-humble-robot-state-publisher \
-      ros-humble-xacro \
-      ros-humble-navigation2 \
-      ros-humble-nav2-bringup \
-      ros-humble-slam-toolbox \
-      ros-humble-robot-localization \
-      ros-humble-rplidar-ros \
-      ros-humble-v4l2-camera \
-      ros-humble-image-transport-plugins \
-      ros-humble-joy \
-      ros-humble-teleop-twist-joy \
-      ros-humble-cv-bridge \
+      ros-jazzy-ros2-control \
+      ros-jazzy-ros2-controllers \
+      ros-jazzy-controller-manager \
+      ros-jazzy-diff-drive-controller \
+      ros-jazzy-joint-state-broadcaster \
+      ros-jazzy-position-controllers \
+      ros-jazzy-twist-mux \
+      ros-jazzy-topic-tools \
+      ros-jazzy-robot-state-publisher \
+      ros-jazzy-xacro \
+      ros-jazzy-navigation2 \
+      ros-jazzy-nav2-bringup \
+      ros-jazzy-slam-toolbox \
+      ros-jazzy-robot-localization \
+      ros-jazzy-rplidar-ros \
+      ros-jazzy-camera-ros \
+      ros-jazzy-image-transport-plugins \
+      ros-jazzy-joy \
+      ros-jazzy-teleop-twist-joy \
+      ros-jazzy-cv-bridge \
       python3-colcon-common-extensions \
       python3-opencv \
       v4l-utils \
@@ -49,68 +50,18 @@ RUN apt-get update \
        --skip-keys "bonicbot_a2_description bonicbot_a2_hardware bonicbot_a2_nav" \
     && rm -rf /var/lib/apt/lists/*
 
-# TF2 0.25.23 MUST NOT SHIP. It deadlocks Nav2's TF listener, and nothing says
-# so: no log line, no crash, every node still running — the controller's
-# map -> odom just stops advancing and every goal fails.
-#
-# A has never had it, and only by luck: 2.3.1 carries tf2 0.25.22 because the
-# apt layers above were cached on 2026-09-09, before packages.ros.org/ros2
-# started serving 0.25.23. Nothing here pins a version, so the first build that
-# misses that cache would install it. S1 did (bonicos-s1-ros 1.1.0, built a
-# month later) and froze within minutes of every navigation session,
-# 2026-10-07; bonicOS-s1-ros/Dockerfile.ros has the full account.
-#
-# Upstream: ros2/geometry2 #966 introduced it, #982 fixes it and is 0.25.24,
-# #992 is the report. The fix is in libtf2.so alone.
-#
-# So, the same step as S1's: if this image came out with a tf2 in the broken
-# range, take geometry2 — and only geometry2 — from ros2-testing, then drop
-# that source again. Older than 0.25.23 predates the bug and is left exactly as
-# it is, so this changes nothing while the cache holds; once the main repo
-# carries the fix the range no longer matches either. And the build ends by
-# refusing a tf2 in the broken range, whatever happened above.
-RUN set -eu; \
-    tf2_broken() { \
-      v="$(dpkg-query -W -f='${Version}' ros-humble-tf2)"; \
-      dpkg --compare-versions "$v" ge 0.25.23 \
-        && dpkg --compare-versions "$v" lt 0.25.24; \
-    }; \
-    if tf2_broken; then \
-      sed -e 's#packages.ros.org/ros2/ubuntu#packages.ros.org/ros2-testing/ubuntu#' \
-          -e 's#^Types:.*#Types: deb#' \
-          /etc/apt/sources.list.d/ros2.sources \
-          > /etc/apt/sources.list.d/ros2-testing.sources; \
-      apt-get update; \
-      apt-get install -y --no-install-recommends --only-upgrade \
-        ros-humble-geometry2 \
-        ros-humble-tf2 \
-        ros-humble-tf2-bullet \
-        ros-humble-tf2-eigen \
-        ros-humble-tf2-eigen-kdl \
-        ros-humble-tf2-geometry-msgs \
-        ros-humble-tf2-kdl \
-        ros-humble-tf2-msgs \
-        ros-humble-tf2-py \
-        ros-humble-tf2-ros \
-        ros-humble-tf2-ros-py \
-        ros-humble-tf2-sensor-msgs \
-        ros-humble-tf2-tools; \
-      rm -f /etc/apt/sources.list.d/ros2-testing.sources; \
-      rm -rf /var/lib/apt/lists/*; \
-    fi; \
-    if tf2_broken; then \
-      echo "ros-humble-tf2 is $(dpkg-query -W -f='${Version}' ros-humble-tf2):" \
-           "the release that deadlocks Nav2's TF listener, and no fixed one" \
-           "could be installed. Not building an image that cannot navigate." >&2; \
-      exit 1; \
-    fi; \
-    dpkg-query -W -f='tf2 in this image: ${Package} ${Version}\n' \
-      ros-humble-tf2 ros-humble-tf2-ros
+# TF2 / NAV2 DEADLOCK — the Humble image's ros2-testing workaround is gone, on
+# purpose. Humble shipped geometry2's waitForTransform change (#966) on its own
+# in tf2 0.25.23, which deadlocked Nav2's TF listener, and the fix (#982) only
+# followed in 0.25.24 — hence the version check this file used to carry.
+# Jazzy received both in the SAME release, 0.36.23, so no Jazzy tf2 has the
+# bug without the fix and there is no broken range to guard against.
+# bonicOS-s1-ros/Dockerfile.ros has the full account of the Humble incident.
 
 COPY src/hardware/ src/hardware/
 COPY src/nav/      src/nav/
 
-RUN . /opt/ros/humble/setup.sh \
+RUN . /opt/ros/jazzy/setup.sh \
     && colcon build \
        --packages-select bonicbot_a2_hardware bonicbot_a2_description bonicbot_a2_nav \
        --cmake-args -DCMAKE_BUILD_TYPE=Release
@@ -141,7 +92,7 @@ ARG BUILD_DATE=unknown
 # them into build_info(), so `distro` surfaces as `ros_distro`. Writing
 # `ros_distro=` here would come back as `ros_ros_distro`.
 RUN printf '%s\ncommit=%s\nbuilt=%s\ndistro=%s\n' \
-      "${VERSION}" "${GIT_COMMIT}" "${BUILD_DATE}" "${ROS_DISTRO:-humble}" \
+      "${VERSION}" "${GIT_COMMIT}" "${BUILD_DATE}" "${ROS_DISTRO:-jazzy}" \
       > /ws/version.txt
 
 # Maps live on a volume so they survive image rebuilds.

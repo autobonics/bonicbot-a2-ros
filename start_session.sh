@@ -49,9 +49,13 @@ if [ -n "$("$A2_ROS/stop_session.sh" --check 2>/dev/null)" ]; then
     fi
 fi
 
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source "$A2_ROS/install/setup.bash"
-export ROS_LOCALHOST_ONLY=1
+# Jazzy's form of ROS_LOCALHOST_ONLY=1, which it still honours but deprecates.
+# Every process that must see this stack — robot_app, and the shell you run
+# `ros2` CLI commands from — needs a localhost-only setting too, or it lands on
+# a different discovery scope and sees nothing.
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
 # nav's map loading (BONICBOT_MAPS_DIR) and robot_app's save/list/load
 # (MAPS_DIR) must agree on one directory.

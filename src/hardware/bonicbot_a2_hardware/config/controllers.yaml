@@ -36,8 +36,6 @@ diff_cont:
     wheel_separation: 0.2895
     wheel_radius: 0.06
 
-    use_stamped_vel: false
-
     # Disable TF publishing — EKF (robot_localization) publishes odom→base_link
     # Having both publish TF causes a conflict
     enable_odom_tf: false

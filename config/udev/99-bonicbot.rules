@@ -14,9 +14,10 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="e
 # (10c4:ea60) and CH340 (1a86:7523) are the usual ones.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="lidar", GROUP="dialout", MODE="0660"
 
-# CSI camera needs no rule — it enumerates as /dev/video0 via bcm2835-unicam.
-# NOTE: that symlink existing does NOT mean the camera is usable from v4l2. On
-# Ubuntu 22.04's libcamera stack /dev/video0 is the RAW CSI receiver: it streams
+# CSI camera needs no rule — it enumerates as /dev/video0 via bcm2835-unicam
+# (rp1-cfe on a Pi 5).
+# NOTE: that symlink existing does NOT mean the camera is usable from v4l2.
+# /dev/video0 is the RAW CSI receiver: it streams
 # only the sensor's native Bayer format (GB10 on the ov5647) and rejects every
 # other one at VIDIOC_STREAMON. The camera is driven through libcamera
 # (camera_ros), not v4l2_camera — see bonicbot_a2_hardware/launch/camera.launch.py.

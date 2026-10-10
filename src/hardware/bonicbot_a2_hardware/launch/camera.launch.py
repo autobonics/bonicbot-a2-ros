@@ -33,8 +33,19 @@ from launch_ros.actions import Node
 # RGB/YUV streams. `RPI vc4.cpp: Registered camera ov5647@36 to Unicam device
 # /dev/media1 and ISP device /dev/media0`.
 #
-# Requires ros-humble-camera-ros (pulls ros-humble-libcamera 0.1.0). Ubuntu's
-# own libcamera0 is a 2020 snapshot and is NOT a substitute.
+# Requires ros-jazzy-camera-ros, which pulls ros-jazzy-libcamera (upstream
+# libcamera, 0.7.x at the time of the Jazzy port). Ubuntu's own libcamera
+# package is NOT a substitute.
+#
+# Everything above is the Pi 4 (unicam + bcm2835-isp). A Pi 5 has a different
+# CSI receiver (rp1-cfe) and ISP (PiSP), so two things differ there:
+#   - libcamera needs the rpi/pisp pipeline. ROS's libcamera is the plain
+#     upstream build, and camera_ros's own README warns it may lack full
+#     Raspberry Pi support; if `camera_node` finds no camera, build the
+#     raspberrypi/libcamera fork in the workspace instead
+#     (JAZZY_MIGRATION.md, Pi 5).
+#   - the sensor's libcamera id is a different device-tree path, so the
+#     `camera` default below is wrong there; pass camera:=<id>.
 
 
 def _camera_node(context, *args, **kwargs):
@@ -90,12 +101,12 @@ def _camera_node(context, *args, **kwargs):
 
     # ── An upside-down camera is fixed in config.txt, NOT here ───────────
     #
-    # camera_ros exposes an `orientation` parameter and it does NOT work on
-    # this stack: it is implemented against libcamera's Orientation API, added
-    # in libcamera 0.2, and ros-humble-libcamera is 0.1.0 (the only version
-    # the ROS repo ships). Setting it logs, once, and is then ignored:
-    #
-    #   [face_camera]: parameter 'orientation' not supported on libcamera 0.1
+    # camera_ros exposes an `orientation` parameter. On Humble it did nothing:
+    # it is implemented against libcamera's Orientation API, added in
+    # libcamera 0.2, and ros-humble-libcamera was 0.1.0. Jazzy's libcamera is
+    # new enough for it, but it is still NOT used here: the device-tree route
+    # below already handles an inverted sensor at zero cost, and two flips
+    # configured in two places would cancel out.
     #
     # Nor can the sensor's own `vertical_flip`/`horizontal_flip` V4L2 controls
     # be poked directly — both carry `flags=modify-layout`, i.e. flipping
