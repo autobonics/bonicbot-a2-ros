@@ -51,6 +51,7 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
+    enable_stamped_cmd_vel: true
     use_sim_time: True  # Changed for real robot
     controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
@@ -225,6 +226,7 @@ smoother_server:
 
 behavior_server:
   ros__parameters:
+    enable_stamped_cmd_vel: true
     local_costmap_topic: local_costmap/costmap_raw
     local_footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
@@ -266,6 +268,7 @@ waypoint_follower:
 
 velocity_smoother:
   ros__parameters:
+    enable_stamped_cmd_vel: true
     use_sim_time: True  # Changed for real robot
     smoothing_frequency: 20.0
     scale_velocities: False

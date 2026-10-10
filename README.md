@@ -286,7 +286,7 @@ If the IDs differ from `config/udev/99-bonicbot.rules`, update the rules and re-
 ```bash
 ros2 control list_controllers          # all should be 'active'
 ros2 topic echo /joint_states --once   # encoders updating?
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}" --once
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/TwistStamped "{twist: {linear: {x: 0.1}}}"   # Ctrl+C stops
 ```
 A controller stuck in `loaded` (not `active`) usually means its spawner timed out against
 a cold `controller_manager` — the launch files pass `--service-call-timeout 60` for

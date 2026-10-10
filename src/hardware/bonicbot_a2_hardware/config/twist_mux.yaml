@@ -1,10 +1,11 @@
 twist_mux:
   ros__parameters:
-    # Jazzy's twist_mux (4.5) defaults to TwistStamped on every input and its
-    # output when this is unset. Every publisher into it — robot_app,
-    # velocity_smoother, teleop_twist_joy — sends plain Twist, so it must stay
-    # unstamped; cmd_vel_stamper converts the output for diff_cont.
-    use_stamped: false
+    # TwistStamped on every input and on the output, which feeds diff_cont's
+    # /diff_cont/cmd_vel directly (Jazzy's diff_drive_controller takes nothing
+    # else). Every publisher into the lanes below must send TwistStamped too:
+    # Nav2 (enable_stamped_cmd_vel in nav2_params.yaml), teleop_twist_joy
+    # (publish_stamped_twist in joystick.yaml) and robot_app.
+    use_stamped: true
     topics:
       navigation:
         topic   : cmd_vel

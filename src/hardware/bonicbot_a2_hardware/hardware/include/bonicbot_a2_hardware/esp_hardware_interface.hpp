@@ -4,11 +4,16 @@
 // seven serial servos, the IMU and the battery monitor sit behind it, reached
 // over one CDC-ACM link. This plugin is therefore an ACTIVE CDC master.
 //
-// It also serves the Wi-Fi relay topics. That is deliberate: SystemInterface
-// has no node of its own, so an internal rclcpp::Node is created and spun for
-// IMU/battery publishing, and the relay rides on that same node. A separate
-// process cannot be used — two processes sharing one CDC byte stream would
-// interleave and split frames.
+// It also serves the Wi-Fi relay topics. That is deliberate: the IMU/battery
+// publishers and the relay all ride on the node ros2_control gives every
+// hardware component (get_node(), named after the <ros2_control> tag and spun
+// by the controller_manager's own executor). A separate process cannot be used
+// — two processes sharing one CDC byte stream would interleave and split
+// frames.
+//
+// ros2_control (Jazzy) owns the joint state/command interfaces: they are
+// created from the <ros2_control> tag, and this plugin reaches them through
+// handles cached in on_configure().
 
 #ifndef BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
 #define BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
@@ -16,6 +21,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -26,6 +32,7 @@
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
+#include "hardware_interface/types/hardware_component_interface_params.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/macros.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -54,7 +61,7 @@ public:
   RCLCPP_SHARED_PTR_DEFINITIONS(EspHardwareInterface)
 
   hardware_interface::CallbackReturn on_init(
-    const hardware_interface::HardwareInfo & info) override;
+    const hardware_interface::HardwareComponentInterfaceParams & params) override;
 
   hardware_interface::CallbackReturn on_configure(
     const rclcpp_lifecycle::State & previous_state) override;
@@ -64,10 +71,6 @@ public:
 
   hardware_interface::CallbackReturn on_shutdown(
     const rclcpp_lifecycle::State & previous_state) override;
-
-  std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
-
-  std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
 
   hardware_interface::CallbackReturn on_activate(
     const rclcpp_lifecycle::State & previous_state) override;
@@ -82,13 +85,13 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
-  /// Cancels the executor and joins spin_thread_, then resets the internal
-  /// node and its publishers/subscriptions. Shared by on_cleanup() and
-  /// on_shutdown() — process termination (SIGINT/SIGTERM) goes through
-  /// deactivate() -> shutdown(), NEVER cleanup(), so this can't only live in
-  /// on_cleanup() or a plain kill destroys a still-joinable std::thread,
-  /// which is an unconditional std::terminate()/abort, no exception involved.
-  void stopInternalNode();
+  /// Drops every publisher/subscription created on get_node(). Shared by
+  /// on_cleanup() and on_shutdown(), because process termination
+  /// (SIGINT/SIGTERM) goes through deactivate() -> shutdown(), never cleanup().
+  void releaseRosInterfaces();
+
+  /// Copies hw_positions_/hw_velocities_ into the framework's state handles.
+  void publishJointStates();
 
   // ── serial port ──────────────────────────────────────────────
   bool openSerialPort();
@@ -155,7 +158,19 @@ private:
   uint8_t  rx_payload_[cdc_protocol::MAX_PAYLOAD_SIZE];
 
   // ── joint state ──────────────────────────────────────────────
+  // Framework-owned interface handles, per joint index (info_.joints order).
+  // Resolved once in on_configure() so the 50 Hz loop never does a name
+  // lookup, and accessed non-blocking (wait_for_lock = false) from read()/
+  // write(), the real-time-safe form.
+  std::vector<hardware_interface::StateInterface::SharedPtr> position_handles_;
+  std::vector<hardware_interface::StateInterface::SharedPtr> velocity_handles_;
+  std::vector<hardware_interface::CommandInterface::SharedPtr> command_handles_;
+  // Latest command per joint, read from command_handles_ at the top of write().
   std::vector<double> hw_commands_;
+
+  // The plugin's own model of the joints. Filled from encoder replies and servo
+  // feedback, which arrive inside pumpSerial(), and copied into the state
+  // handles once per read().
   std::vector<double> hw_positions_;
   std::vector<double> hw_velocities_;
   std::vector<double> prev_positions_;
@@ -163,6 +178,12 @@ private:
 
   size_t left_wheel_idx_ = 0;
   size_t right_wheel_idx_ = 1;
+
+  // Last wheel speeds sent (m/s), so an unchanged command is not resent at
+  // 50 Hz. NaN = nothing sent yet; reset on activate and on reconnect, because
+  // a freshly booted ESP knows none of it.
+  double last_left_mps_ = std::numeric_limits<double>::quiet_NaN();
+  double last_right_mps_ = std::numeric_limits<double>::quiet_NaN();
 
   int32_t encoder_left_ = 0;
   int32_t encoder_right_ = 0;
@@ -196,8 +217,7 @@ private:
   int servo_feedback_decimator_ = 0;
   int servo_feedback_decimation_ = 1;
 
-  // ── internal node: publishers, Wi-Fi relay, spin thread ──────
-  rclcpp::Node::SharedPtr node_;
+  // ── ROS interfaces on get_node(): telemetry and Wi-Fi relay ──
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr battery_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr wifi_credentials_publisher_;
@@ -205,11 +225,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_display_subscription_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr shutdown_publisher_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr shutdown_request_subscription_;
-  rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
-  std::thread spin_thread_;
 
   /// Latest /esp/wifi_status, packed into the 50-byte CDC payload ready to send.
-  /// Written by the subscription callback on the spin thread, read by the
+  /// Written by the subscription callback on an executor thread, read by the
   /// control thread when the ESP asks — hence the mutex.
   std::vector<uint8_t> wifi_status_payload_;
   std::mutex wifi_status_mutex_;
@@ -230,7 +248,7 @@ private:
   /// Raw CMD_MATRIX_ACTION payload from /face/display_action — byte 0 is the
   /// action code, the rest is that action's own layout (spec §4). This is a
   /// dumb pipe: this repo doesn't interpret expressions, just forwards bytes.
-  /// Written by the subscription callback on the spin thread, sent from
+  /// Written by the subscription callback on an executor thread, sent from
   /// write() on the control thread — same split as the Wi-Fi payload above,
   /// because only the control thread may touch the serial fd.
   ///

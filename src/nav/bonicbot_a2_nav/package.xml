@@ -17,6 +17,8 @@
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_amcl</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
+  <!-- navigation.launch.py composes the Nav2 servers into one container -->
+  <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <!-- slam.launch.py drives slam_toolbox's lifecycle transitions itself -->
   <exec_depend>lifecycle_msgs</exec_depend>

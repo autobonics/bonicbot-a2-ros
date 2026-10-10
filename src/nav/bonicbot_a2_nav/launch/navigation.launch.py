@@ -10,6 +10,12 @@ both publish map->odom, the transform tree gets two parents for the same frame,
 and the robot's pose flips between their estimates.
 
 Map storage follows BONICBOT_MAPS_DIR (default /maps, the Docker volume mount).
+
+Composed by default (use_composition:=true), as nav2_bringup does on Jazzy:
+every Nav2 server is a component in ONE process, nav2_container. On the Pi
+that is one process and one DDS participant instead of ten, so far less memory,
+discovery traffic and context switching. use_composition:=false runs each
+server as its own process again, which is easier to debug or profile one node.
 """
 
 import os
@@ -18,9 +24,10 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import UnlessCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode
 
 
 def generate_launch_description():
@@ -31,6 +38,7 @@ def generate_launch_description():
     slam = LaunchConfiguration('slam')
     autostart = LaunchConfiguration('autostart')
     params_file = LaunchConfiguration('params_file')
+    use_composition = LaunchConfiguration('use_composition')
 
     declare_args = [
         DeclareLaunchArgument(
@@ -44,6 +52,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'autostart', default_value='true',
             description='Auto-transition the Nav2 lifecycle nodes'),
+        DeclareLaunchArgument(
+            'use_composition', default_value='true',
+            description='Run the Nav2 servers as components of one container '
+                        'process (false: one process per server)'),
         DeclareLaunchArgument(
             'params_file',
             default_value=os.path.join(pkg_share, 'config', 'nav2_params.yaml'),
@@ -87,82 +99,94 @@ def generate_launch_description():
     # a real crash.
     bond_timeout = 20.0
 
-    # ── localization: ONLY when slam:=false ──────────────────────
-    localization = GroupAction(
-        condition=UnlessCondition(slam),
-        actions=[
-            Node(
-                package='nav2_map_server',
-                executable='map_server',
-                name='map_server',
-                output='screen',
-                parameters=[params_file,
-                            {'use_sim_time': use_sim_time, 'yaml_filename': map_yaml}],
-            ),
-            Node(
-                package='nav2_amcl',
-                executable='amcl',
-                name='amcl',
-                output='screen',
-                parameters=[params_file, {'use_sim_time': use_sim_time}],
-            ),
-            Node(
-                package='nav2_lifecycle_manager',
-                executable='lifecycle_manager',
-                name='lifecycle_manager_localization',
-                output='screen',
-                parameters=[{
-                    'use_sim_time': use_sim_time,
-                    'autostart': autostart,
-                    'bond_timeout': bond_timeout,
-                    'node_names': ['map_server', 'amcl'],
-                }],
-            ),
-        ],
-    )
-
-    # ── navigation: always ───────────────────────────────────────
-    # Velocity chain, matching upstream nav2_bringup's remappings:
-    #     controller_server --cmd_vel_nav--> velocity_smoother --cmd_vel--> twist_mux
-    # twist_mux then arbitrates against /cmd_vel_joy (joystick wins), and
-    # cmd_vel_stamper hands the winner to diff_cont as TwistStamped
-    # (hardware.launch.py). Nav2 itself stays on plain Twist: its
-    # enable_stamped_cmd_vel defaults to false on Jazzy.
-    nav2_nodes = [
-        ('nav2_controller', 'controller_server', 'controller_server',
-         [('cmd_vel', 'cmd_vel_nav')]),
-        ('nav2_smoother', 'smoother_server', 'smoother_server', []),
-        ('nav2_planner', 'planner_server', 'planner_server', []),
-        ('nav2_behaviors', 'behavior_server', 'behavior_server', []),
-        ('nav2_bt_navigator', 'bt_navigator', 'bt_navigator', []),
-        ('nav2_waypoint_follower', 'waypoint_follower', 'waypoint_follower', []),
-        ('nav2_velocity_smoother', 'velocity_smoother', 'velocity_smoother',
+    # ── the servers ─────────────────────────────────────────────
+    # (package, component plugin, executable, node name, extra params, remaps)
+    #
+    # Velocity chain, matching nav2_bringup's remappings minus the collision
+    # monitor this robot does not run:
+    #     controller_server ┐
+    #     behavior_server   ┴─cmd_vel_nav─> velocity_smoother ─cmd_vel─> twist_mux
+    # Recoveries (spin/backup/drive_on_heading) go through the smoother too, as
+    # upstream does, so they are acceleration-limited like path following.
+    # twist_mux then arbitrates against /cmd_vel_joy (joystick wins) and
+    # forwards the winner to diff_cont. All TwistStamped
+    # (enable_stamped_cmd_vel in nav2_params.yaml).
+    localization_nodes = [
+        ('nav2_map_server', 'nav2_map_server::MapServer', 'map_server', 'map_server',
+         {'yaml_filename': map_yaml}, []),
+        ('nav2_amcl', 'nav2_amcl::AmclNode', 'amcl', 'amcl', {}, []),
+    ]
+    navigation_nodes = [
+        ('nav2_controller', 'nav2_controller::ControllerServer',
+         'controller_server', 'controller_server', {}, [('cmd_vel', 'cmd_vel_nav')]),
+        ('nav2_smoother', 'nav2_smoother::SmootherServer',
+         'smoother_server', 'smoother_server', {}, []),
+        ('nav2_planner', 'nav2_planner::PlannerServer',
+         'planner_server', 'planner_server', {}, []),
+        ('nav2_behaviors', 'behavior_server::BehaviorServer',
+         'behavior_server', 'behavior_server', {}, [('cmd_vel', 'cmd_vel_nav')]),
+        ('nav2_bt_navigator', 'nav2_bt_navigator::BtNavigator',
+         'bt_navigator', 'bt_navigator', {}, []),
+        ('nav2_waypoint_follower', 'nav2_waypoint_follower::WaypointFollower',
+         'waypoint_follower', 'waypoint_follower', {}, []),
+        ('nav2_velocity_smoother', 'nav2_velocity_smoother::VelocitySmoother',
+         'velocity_smoother', 'velocity_smoother', {},
          [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
     ]
 
-    navigation = GroupAction(actions=[
-        Node(
-            package=pkg,
-            executable=exe,
-            name=name,
-            output='screen',
-            parameters=[params_file, {'use_sim_time': use_sim_time}],
-            remappings=remaps,
-        )
-        for pkg, exe, name, remaps in nav2_nodes
-    ] + [
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_navigation',
-            output='screen',
-            parameters=[{
-                'use_sim_time': use_sim_time,
-                'autostart': autostart,
-                'bond_timeout': bond_timeout,
-                'node_names': [name for _, _, name, _ in nav2_nodes],
-            }],
-        ),
-    ])
+    def server_group(nodes, manager_name, condition=None):
+        """The servers plus their lifecycle_manager, composed or standalone."""
+        manager_params = {
+            'use_sim_time': use_sim_time,
+            'autostart': autostart,
+            'bond_timeout': bond_timeout,
+            'node_names': [name for _, _, _, name, _, _ in nodes],
+        }
 
-    return LaunchDescription(declare_args + [localization, navigation])
+        def params(extra):
+            return [params_file, {'use_sim_time': use_sim_time, **extra}]
+
+        composed = LoadComposableNodes(
+            condition=IfCondition(use_composition),
+            target_container='nav2_container',
+            composable_node_descriptions=[
+                ComposableNode(package=pkg, plugin=plugin, name=name,
+                               parameters=params(extra), remappings=remaps)
+                for pkg, plugin, _, name, extra, remaps in nodes
+            ] + [
+                ComposableNode(package='nav2_lifecycle_manager',
+                               plugin='nav2_lifecycle_manager::LifecycleManager',
+                               name=manager_name, parameters=[manager_params]),
+            ],
+        )
+        standalone = GroupAction(
+            condition=UnlessCondition(use_composition),
+            actions=[
+                Node(package=pkg, executable=exe, name=name, output='screen',
+                     parameters=params(extra), remappings=remaps)
+                for pkg, _, exe, name, extra, remaps in nodes
+            ] + [
+                Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+                     name=manager_name, output='screen', parameters=[manager_params]),
+            ],
+        )
+        return GroupAction(condition=condition, actions=[composed, standalone])
+
+    # component_container_isolated: one single-threaded executor per component,
+    # so a busy server cannot starve another's callbacks inside the process.
+    container = Node(
+        condition=IfCondition(use_composition),
+        package='rclcpp_components',
+        executable='component_container_isolated',
+        name='nav2_container',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}],
+    )
+
+    # Localization ONLY when slam:=false — slam_toolbox owns map->odom otherwise.
+    localization = server_group(
+        localization_nodes, 'lifecycle_manager_localization',
+        condition=UnlessCondition(slam))
+    navigation = server_group(navigation_nodes, 'lifecycle_manager_navigation')
+
+    return LaunchDescription(declare_args + [container, localization, navigation])

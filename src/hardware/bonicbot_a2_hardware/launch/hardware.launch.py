@@ -1,8 +1,8 @@
 """BonicBot A2 hardware bringup — everything that touches /dev/*.
 
 Starts robot_state_publisher, the ros2_control controller_manager bound to the
-ESP32-S3 USB CDC interface, all seven controllers, twist_mux and the
-cmd_vel_stamper behind it, the RPLIDAR and (optionally) the CSI camera.
+ESP32-S3 USB CDC interface, all seven controllers, twist_mux, the RPLIDAR and
+(optionally) the CSI camera.
 
 Navigation runs separately:
     ros2 launch bonicbot_a2_nav bringup.launch.py
@@ -102,9 +102,11 @@ def generate_launch_description():
     # odometry this calibrates — exactly as that file's own `wheel_radius`
     # property is left alone by the WHEEL_RADIUS override above.
     controllers_yaml = os.path.join(pkg_share, 'config', 'controllers.yaml')
+    # The controller_manager itself needs only controllers.yaml (update_rate
+    # and each controller's type). Controller PARAMETERS reach the controllers
+    # through the spawner's --param-file, below.
     controller_manager_params = [controllers_yaml]
-    # Per-controller parameter files for the spawners — see spawner() below.
-    controller_param_files = {}
+    controller_param_files = [controllers_yaml]
     # Gathered into ONE override dict rather than appended one per key, so the
     # overrides remain a single parameter source however many are provisioned.
     # With no env vars set the list is untouched and behaviour is unchanged.
@@ -121,9 +123,9 @@ def generate_launch_description():
         # "diff_cont.ros__parameters.wheel_separation: 0.15" on the
         # controller_manager, which nothing reads, while diff_cont kept
         # controllers.yaml's value (found on A2, 2026-09-30: config 0.15,
-        # diff_cont 0.2895). A params FILE is what ros2_control forwards to the
-        # controllers, the same way controllers.yaml reaches them. Loaded after
-        # controllers.yaml, so these keys win.
+        # diff_cont 0.2895). The spawner hands parameter FILES to the
+        # controllers, and this one is passed after controllers.yaml, so these
+        # keys win.
         #
         # ONE fixed file, overwritten on every start (temp file + rename, so a
         # reader never sees it half-written), not a new temp file per start:
@@ -140,8 +142,7 @@ def generate_launch_description():
             yaml.safe_dump(
                 {'diff_cont': {'ros__parameters': diff_cont_overrides}}, tmp)
         os.replace(tmp.name, overrides_path)
-        controller_manager_params.append(overrides_path)
-        controller_param_files['diff_cont'] = [overrides_path]
+        controller_param_files.append(overrides_path)
 
     controller_manager = Node(
         package='controller_manager',
@@ -150,65 +151,60 @@ def generate_launch_description():
         output='screen',
     )
 
-    # Each spawner also hands its controller the parameter files itself
-    # (--param-file). On Jazzy the controllers are created with
-    # use_global_arguments=false, and ros2_control's migration notes make the
-    # spawner the documented way to load a controller's parameters. The
-    # controller_manager still forwards its own files too, so a controller can
-    # receive controllers.yaml twice. That is harmless as long as the ORDER
-    # holds: the overrides file comes after controllers.yaml in both lists, so
-    # it still wins for diff_cont's wheel_radius and wheel_separation.
-    def spawner(name):
-        param_args = []
-        for path in [controllers_yaml] + controller_param_files.get(name, []):
-            param_args += ['--param-file', path]
-        return Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=[
-                name,
-                *param_args,
-                '--controller-manager-timeout', '120',
-                '--switch-timeout', '50',
-                # All seven spawners fire at once against a controller_manager
-                # that is still cold — and on A2 it is colder than most, because
-                # on_configure() opens the CDC port and sleeps 500 ms settling it
-                # before the manager can serve anything.
-                #
-                # --service-call-timeout is per-CALL and separate from
-                # --controller-manager-timeout (which only covers waiting for the
-                # services to appear). Its 10s default can expire on the first
-                # load_controller call, and that spawner then dies with exit
-                # code 1 leaving its controller LOADED BUT NEVER CONFIGURED:
-                # the node exists and the graph looks healthy, but it has no
-                # command subscription — a controller that looks fine and
-                # silently ignores every command sent to it.
-                '--service-call-timeout', '60',
-            ],
-            parameters=[{'use_sim_time': False}],
-        )
+    # ONE spawner for all seven controllers: one Python process and one
+    # controller_manager handshake instead of seven, which matters on a Pi.
+    #
+    # --param-file is how Jazzy gives controllers their parameters: they are
+    # created with use_global_arguments=false, so the controller_manager's own
+    # parameter files are not the documented path. Every file goes to every
+    # controller, and the spawner only forwards a file to a controller that has
+    # a section in it, so the overrides file reaches diff_cont alone. Order is
+    # load order: the overrides come last and win.
+    param_args = []
+    for path in controller_param_files:
+        param_args += ['--param-file', path]
 
-    # ── twist_mux -> cmd_vel_stamper -> diff_cont ────────────────
-    # Jazzy's diff_cont takes TwistStamped only, on /diff_cont/cmd_vel. twist_mux
-    # keeps arbitrating plain Twist (twist_mux.yaml, use_stamped: false), and
-    # cmd_vel_stamper stamps the winner on its way into the controller. Only
-    # this file and sim.launch.py use /cmd_vel_muxed; robot_app still publishes
-    # Twist on /cmd_vel exactly as before.
+    spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=[
+            'diff_cont',
+            'joint_broad',
+            'left_arm_controller',
+            'right_arm_controller',
+            'head_controller',
+            'left_gripper_controller',
+            'right_gripper_controller',
+            *param_args,
+            '--controller-manager-timeout', '120',
+            '--switch-timeout', '50',
+            # The spawner meets a controller_manager that is still cold — and
+            # on A2 it is colder than most, because on_configure() opens the
+            # CDC port and sleeps 500 ms settling it before the manager can
+            # serve anything.
+            #
+            # --service-call-timeout is per-CALL and separate from
+            # --controller-manager-timeout (which only covers waiting for the
+            # services to appear). Its 10s default can expire on a cold
+            # load_controller call, and the spawner then dies with exit code 1
+            # leaving its controller LOADED BUT NEVER CONFIGURED: the node
+            # exists and the graph looks healthy, but it has no command
+            # subscription — a controller that looks fine and silently ignores
+            # every command sent to it.
+            '--service-call-timeout', '60',
+        ],
+        parameters=[{'use_sim_time': False}],
+    )
+
+    # ── twist_mux ────────────────────────────────────────────────
+    # TwistStamped end to end: the lanes (/cmd_vel, /cmd_vel_joy) and the
+    # output, which is diff_cont's own input on Jazzy.
     twist_mux = Node(
         package='twist_mux',
         executable='twist_mux',
         parameters=[os.path.join(pkg_share, 'config', 'twist_mux.yaml'),
                     {'use_sim_time': False}],
-        remappings=[('/cmd_vel_out', '/cmd_vel_muxed')],
-    )
-
-    cmd_vel_stamper = Node(
-        package='bonicbot_a2_hardware',
-        executable='cmd_vel_stamper',
-        name='cmd_vel_stamper',
-        parameters=[{'use_sim_time': False}],
-        remappings=[('cmd_vel_in', '/cmd_vel_muxed'),
-                    ('cmd_vel_out', '/diff_cont/cmd_vel')],
+        remappings=[('/cmd_vel_out', '/diff_cont/cmd_vel')],
     )
 
     # joint_state_broadcaster publishes at the controller_manager update rate
@@ -265,16 +261,9 @@ def generate_launch_description():
         joint_states_throttle_hz_arg,
         rsp,
         controller_manager,
-        spawner('diff_cont'),
-        spawner('joint_broad'),
-        spawner('left_arm_controller'),
-        spawner('right_arm_controller'),
-        spawner('head_controller'),
-        spawner('left_gripper_controller'),
-        spawner('right_gripper_controller'),
+        spawner,
         joint_states_throttle,
         twist_mux,
-        cmd_vel_stamper,
         rplidar,
         camera,
         joystick,

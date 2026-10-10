@@ -17,8 +17,6 @@ namespace bonicbot_a2_hardware
 
 namespace
 {
-constexpr const char * kLogger = "EspHardwareInterface";
-
 // Face actions held between two control cycles. One face change is at most
 // four (clear + frame + play), but display_pixel is not rate-limited by
 // robot_app and a program drawing pixel by pixel on the robot itself can land
@@ -31,6 +29,7 @@ constexpr double kRadToDeg = 180.0 / M_PI;
 
 /// Read a URDF hardware_parameter, falling back to a default when absent.
 double paramOr(
+  const rclcpp::Logger & logger,
   const std::unordered_map<std::string, std::string> & params,
   const std::string & key, double fallback)
 {
@@ -42,7 +41,7 @@ double paramOr(
     return std::stod(it->second);
   } catch (const std::exception &) {
     RCLCPP_WARN(
-      rclcpp::get_logger(kLogger), "Parameter '%s' = '%s' is not a number; using %f",
+      logger, "Parameter '%s' = '%s' is not a number; using %f",
       key.c_str(), it->second.c_str(), fallback);
     return fallback;
   }
@@ -54,9 +53,11 @@ double paramOr(
 // ════════════════════════════════════════════════════════════════════
 
 hardware_interface::CallbackReturn EspHardwareInterface::on_init(
-  const hardware_interface::HardwareInfo & info)
+  const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-  if (hardware_interface::SystemInterface::on_init(info) !=
+  // The base fills info_ and builds the interface descriptions the framework
+  // creates the state/command handles from.
+  if (hardware_interface::SystemInterface::on_init(params) !=
     hardware_interface::CallbackReturn::SUCCESS)
   {
     return hardware_interface::CallbackReturn::ERROR;
@@ -67,15 +68,16 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
   auto port_it = p.find("serial_port");
   serial_port_ = (port_it != p.end()) ? port_it->second : "/dev/esp";
 
-  serial_baud_   = static_cast<int>(paramOr(p, "serial_baud", 115200));
-  encoder_cpr_   = paramOr(p, "encoder_cpr", 14040.0);
-  wheel_radius_  = paramOr(p, "wheel_radius", 0.06);
-  max_velocity_  = paramOr(p, "max_velocity", 10.47);
-  motor_accel_   = paramOr(p, "motor_accel", 1.5);
-  servo_speed_   = static_cast<int>(paramOr(p, "servo_speed", 500));
-  servo_accel_   = static_cast<int>(paramOr(p, "servo_accel", 50));
-  servo_position_threshold_   = paramOr(p, "servo_position_threshold", 0.01);
-  servo_feedback_interval_ms_ = static_cast<int>(paramOr(p, "servo_feedback_interval_ms", 100));
+  serial_baud_   = static_cast<int>(paramOr(get_logger(), p, "serial_baud", 115200));
+  encoder_cpr_   = paramOr(get_logger(), p, "encoder_cpr", 14040.0);
+  wheel_radius_  = paramOr(get_logger(), p, "wheel_radius", 0.06);
+  max_velocity_  = paramOr(get_logger(), p, "max_velocity", 10.47);
+  motor_accel_   = paramOr(get_logger(), p, "motor_accel", 1.5);
+  servo_speed_   = static_cast<int>(paramOr(get_logger(), p, "servo_speed", 500));
+  servo_accel_   = static_cast<int>(paramOr(get_logger(), p, "servo_accel", 50));
+  servo_position_threshold_   = paramOr(get_logger(), p, "servo_position_threshold", 0.01);
+  servo_feedback_interval_ms_ =
+    static_cast<int>(paramOr(get_logger(), p, "servo_feedback_interval_ms", 100));
   // CMD_SERVO_FEEDBACK_REQUEST has no streaming mode (see cdc_protocol.hpp), so
   // read() re-requests it every Nth cycle at the controller_manager's fixed
   // 50 Hz (20 ms) rate to approximate the configured interval.
@@ -89,14 +91,14 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
 
   if (encoder_cpr_ <= 0.0 || wheel_radius_ <= 0.0) {
     RCLCPP_FATAL(
-      rclcpp::get_logger(kLogger),
+      get_logger(),
       "encoder_cpr (%.1f) and wheel_radius (%.3f) must both be > 0",
       encoder_cpr_, wheel_radius_);
     return hardware_interface::CallbackReturn::ERROR;
   }
 
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger),
+    get_logger(),
     "USB CDC port: %s | encoder_cpr %.0f | wheel_radius %.3f m | max_vel %.2f rad/s",
     serial_port_.c_str(), encoder_cpr_, wheel_radius_, max_velocity_);
 
@@ -104,6 +106,9 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
   hw_positions_.assign(n, 0.0);
   hw_velocities_.assign(n, 0.0);
   hw_commands_.assign(n, 0.0);
+  position_handles_.resize(n);
+  velocity_handles_.resize(n);
+  command_handles_.resize(n);
   prev_positions_.assign(n, 0.0);
   last_servo_commands_.assign(n, std::numeric_limits<double>::quiet_NaN());
 
@@ -117,13 +122,13 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
 
     if (joint.command_interfaces.size() != 1) {
       RCLCPP_FATAL(
-        rclcpp::get_logger(kLogger), "Joint '%s' has %zu command interfaces; 1 expected.",
+        get_logger(), "Joint '%s' has %zu command interfaces; 1 expected.",
         joint.name.c_str(), joint.command_interfaces.size());
       return hardware_interface::CallbackReturn::ERROR;
     }
     if (joint.state_interfaces.size() != 2) {
       RCLCPP_FATAL(
-        rclcpp::get_logger(kLogger), "Joint '%s' has %zu state interfaces; 2 expected.",
+        get_logger(), "Joint '%s' has %zu state interfaces; 2 expected.",
         joint.name.c_str(), joint.state_interfaces.size());
       return hardware_interface::CallbackReturn::ERROR;
     }
@@ -133,7 +138,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
       cmd_type != hardware_interface::HW_IF_POSITION)
     {
       RCLCPP_FATAL(
-        rclcpp::get_logger(kLogger),
+        get_logger(),
         "Joint '%s' has unsupported command interface '%s'; expected velocity or position.",
         joint.name.c_str(), cmd_type.c_str());
       return hardware_interface::CallbackReturn::ERROR;
@@ -150,7 +155,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
         found_right = true;
       } else {
         RCLCPP_WARN(
-          rclcpp::get_logger(kLogger),
+          get_logger(),
           "Velocity joint '%s' is neither left_wheel_joint nor right_wheel_joint; ignored.",
           joint.name.c_str());
       }
@@ -158,7 +163,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
       auto it = joint_to_servo_id_.find(joint.name);
       if (it == joint_to_servo_id_.end()) {
         RCLCPP_FATAL(
-          rclcpp::get_logger(kLogger),
+          get_logger(),
           "Position joint '%s' has no servo ID mapping. Add it to "
           "initializeServoMapping() or remove it from ros2_control.xacro.",
           joint.name.c_str());
@@ -167,21 +172,21 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
       servo_joint_indices_.push_back(i);
       servo_id_to_joint_index_[it->second] = i;
       RCLCPP_INFO(
-        rclcpp::get_logger(kLogger), "Servo joint '%s' -> registry ID %u",
+        get_logger(), "Servo joint '%s' -> registry ID %u",
         joint.name.c_str(), it->second);
     }
   }
 
   if (!found_left || !found_right) {
     RCLCPP_FATAL(
-      rclcpp::get_logger(kLogger),
+      get_logger(),
       "Missing wheel joints (left found: %d, right found: %d). Both "
       "left_wheel_joint and right_wheel_joint are required.", found_left, found_right);
     return hardware_interface::CallbackReturn::ERROR;
   }
 
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger), "Initialised %zu joints (2 wheels, %zu servos)",
+    get_logger(), "Initialised %zu joints (2 wheels, %zu servos)",
     n, servo_joint_indices_.size());
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -190,40 +195,62 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_init(
 hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  if (!openSerialPort()) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger(kLogger), "Failed to open %s", serial_port_.c_str());
+  // The framework exported the interfaces right after on_init(), so the
+  // handles exist now. Resolve them once; read()/write() only index vectors.
+  try {
+    for (size_t i = 0; i < info_.joints.size(); i++) {
+      const auto & joint = info_.joints[i];
+      position_handles_[i] =
+        get_state_interface_handle(joint.name + "/" + hardware_interface::HW_IF_POSITION);
+      velocity_handles_[i] =
+        get_state_interface_handle(joint.name + "/" + hardware_interface::HW_IF_VELOCITY);
+      command_handles_[i] =
+        get_command_interface_handle(joint.name + "/" + joint.command_interfaces[0].name);
+    }
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(get_logger(), "%s", e.what());
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // SystemInterface has no node handle of its own, so spin one here. It carries
-  // the IMU/battery publishers AND the Wi-Fi relay topics — the relay cannot be
-  // a separate process because that would mean two owners of one CDC stream.
-  node_ = std::make_shared<rclcpp::Node>("bonicbot_a2_esp_interface");
+  // The node ros2_control creates for this component, already on the
+  // controller_manager's executor. It carries the IMU/battery publishers AND
+  // the Wi-Fi relay topics — the relay cannot be a separate process because
+  // that would mean two owners of one CDC stream.
+  const auto node = get_node();
+  if (!node) {
+    RCLCPP_FATAL(get_logger(), "ros2_control created no node for this component");
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
-  imu_publisher_ = node_->create_publisher<sensor_msgs::msg::Imu>("/imu/data", 10);
+  if (!openSerialPort()) {
+    RCLCPP_ERROR(
+      get_logger(), "Failed to open %s", serial_port_.c_str());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  imu_publisher_ = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data", 10);
   battery_publisher_ =
-    node_->create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10);
+    node->create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10);
   wifi_credentials_publisher_ =
-    node_->create_publisher<std_msgs::msg::String>("/esp/wifi_credentials", 10);
+    node->create_publisher<std_msgs::msg::String>("/esp/wifi_credentials", 10);
 
   // Power button -> robot_app. The ESP hard-cuts the latch 25 s after it asks,
   // so this must reach a subscriber that can actually halt the machine;
   // robot_app's PowerManager is that subscriber.
   shutdown_publisher_ =
-    node_->create_publisher<std_msgs::msg::Empty>("/esp/shutdown", 10);
+    node->create_publisher<std_msgs::msg::Empty>("/esp/shutdown", 10);
 
   // robot_app -> ESP: "run your shutdown sequence and cut power". Needed
   // because with this stack up robot_app cannot reach /dev/esp itself — the
   // direct CDC lane it uses when the stack is down is locked out, by design.
-  shutdown_request_subscription_ = node_->create_subscription<std_msgs::msg::Empty>(
+  shutdown_request_subscription_ = node->create_subscription<std_msgs::msg::Empty>(
     "/esp/shutdown_request", 10,
     [this](const std_msgs::msg::Empty::SharedPtr) {
       // Flag only: the serial fd belongs to the control thread. write() sends it.
       shutdown_push_pending_ = true;
     });
 
-  wifi_status_subscription_ = node_->create_subscription<std_msgs::msg::String>(
+  wifi_status_subscription_ = node->create_subscription<std_msgs::msg::String>(
     "/esp/wifi_status", 10,
     [this](const std_msgs::msg::String::SharedPtr msg) {
       // "connected,ssid,rssi,ip" from robot_app (the nmcli owner), packed into
@@ -245,7 +272,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
 
       if (fields.size() != 4) {
         RCLCPP_WARN(
-          rclcpp::get_logger(kLogger),
+          get_logger(),
           "Malformed /esp/wifi_status '%s'; expected 'connected,ssid,rssi,ip'",
           msg->data.c_str());
         return;
@@ -302,7 +329,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
     wifi_status_payload_.assign(cdc_protocol::WIFI_STATUS_PAYLOAD_SIZE, 0);
   }
 
-  face_display_subscription_ = node_->create_subscription<std_msgs::msg::UInt8MultiArray>(
+  face_display_subscription_ = node->create_subscription<std_msgs::msg::UInt8MultiArray>(
     "/face/display_action", 10,
     [this](const std_msgs::msg::UInt8MultiArray::SharedPtr msg) {
       // Raw pass-through — byte 0 is the action code, rest is that action's
@@ -322,27 +349,16 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
       matrix_action_pending_ = true;
     });
 
-  executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-  executor_->add_node(node_);
-  spin_thread_ = std::thread([this]() {executor_->spin();});
-
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger),
+    get_logger(),
     "Publishing /imu/data, /battery_state, /esp/wifi_credentials; "
     "subscribed /esp/wifi_status, /face/display_action");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-void EspHardwareInterface::stopInternalNode()
+void EspHardwareInterface::releaseRosInterfaces()
 {
-  if (executor_) {
-    executor_->cancel();
-  }
-  if (spin_thread_.joinable()) {
-    spin_thread_.join();
-  }
-  executor_.reset();
   imu_publisher_.reset();
   battery_publisher_.reset();
   wifi_credentials_publisher_.reset();
@@ -350,13 +366,12 @@ void EspHardwareInterface::stopInternalNode()
   shutdown_publisher_.reset();
   shutdown_request_subscription_.reset();
   face_display_subscription_.reset();
-  node_.reset();
 }
 
 hardware_interface::CallbackReturn EspHardwareInterface::on_cleanup(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  stopInternalNode();
+  releaseRosInterfaces();
   closeSerialPort();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -366,11 +381,8 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_shutdown(
 {
   // Process termination (SIGINT/SIGTERM, e.g. stop_session.sh) drives the
   // lifecycle through deactivate() -> shutdown() — cleanup() is NOT part of
-  // that path. Without this override, spin_thread_ was still joinable when
-  // the destructor ran, and destroying a joinable std::thread is an
-  // unconditional std::terminate()/abort (SIGABRT) regardless of connection
-  // state — confirmed via a real crash during bench testing (2026-08-24).
-  stopInternalNode();
+  // that path, so the port has to be released here too.
+  releaseRosInterfaces();
   closeSerialPort();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -418,11 +430,11 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_activate(
 
   if (!encoders_ok) {
     RCLCPP_ERROR(
-      rclcpp::get_logger(kLogger), "No encoder response from ESP32 after 3 attempts");
+      get_logger(), "No encoder response from ESP32 after 3 attempts");
     return hardware_interface::CallbackReturn::ERROR;
   }
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger), "Encoders responding: %d, %d",
+    get_logger(), "Encoders responding: %d, %d",
     encoder_left_, encoder_right_);
 
   std::fill(hw_positions_.begin(), hw_positions_.end(), 0.0);
@@ -432,6 +444,16 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_activate(
   std::fill(
     last_servo_commands_.begin(), last_servo_commands_.end(),
     std::numeric_limits<double>::quiet_NaN());
+  last_left_mps_ = std::numeric_limits<double>::quiet_NaN();
+  last_right_mps_ = std::numeric_limits<double>::quiet_NaN();
+
+  // Framework handles start as NaN. Zero them, so the first write() after
+  // activation commands "stopped" rather than garbage, before any controller
+  // has written.
+  for (const auto & handle : command_handles_) {
+    (void)set_command(handle, 0.0, true);
+  }
+  publishJointStates();
 
   encoder_left_ = 0;
   encoder_right_ = 0;
@@ -442,7 +464,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_activate(
   // polling starts on its own decimation inside read() — no setup call needed.
   servo_feedback_decimator_ = 0;
 
-  RCLCPP_INFO(rclcpp::get_logger(kLogger), "Activated");
+  RCLCPP_INFO(get_logger(), "Activated");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -456,7 +478,7 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_deactivate(
   setAllServoTorque(false);
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-  RCLCPP_INFO(rclcpp::get_logger(kLogger), "Deactivated");
+  RCLCPP_INFO(get_logger(), "Deactivated");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -499,6 +521,7 @@ hardware_interface::return_type EspHardwareInterface::read(
       prev_positions_[i] = hw_positions_[i];
     }
   }
+  publishJointStates();
 
   if (!sendPacket(cdc_protocol::CMD_ENCODER_REQUEST, nullptr, 0)) {
     markDisconnected("encoder request write failed");
@@ -548,12 +571,26 @@ hardware_interface::return_type EspHardwareInterface::write(
     return hardware_interface::return_type::OK;
   }
 
+  // Latest commands from the controllers. Non-blocking: on the rare cycle a
+  // handle is contended, the previous command simply stands.
+  for (size_t i = 0; i < command_handles_.size(); i++) {
+    double value;
+    if (get_command(command_handles_[i], value, false)) {
+      hw_commands_[i] = value;
+    }
+  }
+
   // Wheels: hw_commands_ is rad/s (velocity interface); CMD_MOTOR_MOVE wants m/s.
   // The old protocol took a raw PWM duty (±1022) scaled by max_velocity_, so
   // that conversion is gone entirely — the ESP closes the loop on real units now.
   const double max_mps = max_velocity_ * wheel_radius_;
   double left_mps  = hw_commands_[left_wheel_idx_]  * wheel_radius_;
   double right_mps = hw_commands_[right_wheel_idx_] * wheel_radius_;
+  // A controller can leave NaN in a command interface (unset, or reset on
+  // deactivate). std::clamp passes NaN straight through, and NaN must never
+  // reach the motors — it means "stop".
+  if (!std::isfinite(left_mps)) {left_mps = 0.0;}
+  if (!std::isfinite(right_mps)) {right_mps = 0.0;}
   left_mps  = std::clamp(left_mps,  -max_mps, max_mps);
   right_mps = std::clamp(right_mps, -max_mps, max_mps);
 
@@ -580,7 +617,7 @@ hardware_interface::return_type EspHardwareInterface::write(
     // SET_ANIMATION that shows it.
     for (const auto & action : actions) {
       if (!sendPacket(cdc_protocol::CMD_MATRIX_ACTION, action.data(), action.size())) {
-        RCLCPP_WARN(rclcpp::get_logger(kLogger), "Face display command write failed");
+        RCLCPP_WARN(get_logger(), "Face display command write failed");
         break;
       }
     }
@@ -595,7 +632,7 @@ hardware_interface::return_type EspHardwareInterface::write(
   if (shutdown_push_pending_) {
     shutdown_push_pending_ = false;
     RCLCPP_WARN(
-      rclcpp::get_logger(kLogger),
+      get_logger(),
       "robot_app requested shutdown — asking the ESP to cut power");
     sendPacket(cdc_protocol::CMD_SHUTDOWN, nullptr, 0);
   }
@@ -615,19 +652,19 @@ hardware_interface::return_type EspHardwareInterface::write(
 bool EspHardwareInterface::sendMotorMove(double left_mps, double right_mps, double accel_mps2)
 {
   // Only resend when something actually changed — at 50 Hz an idle robot would
-  // otherwise flood the link with identical frames.
-  static double prev_left = std::numeric_limits<double>::quiet_NaN();
-  static double prev_right = std::numeric_limits<double>::quiet_NaN();
+  // otherwise flood the link with identical frames. Members, not function
+  // statics: they are reset on activate and on reconnect, so a freshly booted
+  // ESP always gets the current command.
   constexpr double kEpsilon = 1e-4;
 
   const bool unchanged =
-    std::abs(left_mps - prev_left) < kEpsilon &&
-    std::abs(right_mps - prev_right) < kEpsilon;
+    std::abs(left_mps - last_left_mps_) < kEpsilon &&
+    std::abs(right_mps - last_right_mps_) < kEpsilon;
   if (unchanged) {
     return true;
   }
-  prev_left = left_mps;
-  prev_right = right_mps;
+  last_left_mps_ = left_mps;
+  last_right_mps_ = right_mps;
 
   // CMD_MOTOR_MOVE: float left (m/s), float right (m/s), float accel (m/s^2)
   uint8_t payload[12];
@@ -713,7 +750,7 @@ bool EspHardwareInterface::setAllServoTorque(bool enabled)
   }
   const bool ok = sendPacket(cdc_protocol::CMD_SERVO_CONTROL, payload, idx);
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger), "Servo torque %s", enabled ? "enabled" : "released");
+    get_logger(), "Servo torque %s", enabled ? "enabled" : "released");
   return ok;
 }
 
@@ -795,7 +832,7 @@ bool EspHardwareInterface::sendPacket(
   }
   if (length > cdc_protocol::MAX_PAYLOAD_SIZE) {
     RCLCPP_ERROR(
-      rclcpp::get_logger(kLogger), "Payload too large: %u (max %u)",
+      get_logger(), "Payload too large: %u (max %u)",
       length, cdc_protocol::MAX_PAYLOAD_SIZE);
     return false;
   }
@@ -827,7 +864,7 @@ bool EspHardwareInterface::sendPacket(
         continue;
       }
       RCLCPP_ERROR(
-        rclcpp::get_logger(kLogger), "Serial write failed: %s", strerror(errno));
+        get_logger(), "Serial write failed: %s", strerror(errno));
       return false;
     }
     written_total += static_cast<size_t>(written);
@@ -902,7 +939,7 @@ void EspHardwareInterface::pumpSerial()
           rx_payload_index_ = 0;
           if (rx_length_ > cdc_protocol::MAX_PAYLOAD_SIZE) {
             RCLCPP_WARN(
-              rclcpp::get_logger(kLogger),
+              get_logger(),
               "Oversized frame (type 0x%02X, len %u); resyncing",
               rx_packet_type_, rx_length_);
             rx_state_ = cdc_protocol::RxState::WAIT_MAGIC1;
@@ -950,7 +987,7 @@ void EspHardwareInterface::processPacket(
         encoder_data_ready_ = true;
       } else {
         RCLCPP_WARN(
-          rclcpp::get_logger(kLogger), "RESP_ENCODERS length %u (expected %u)",
+          get_logger(), "RESP_ENCODERS length %u (expected %u)",
           length, cdc_protocol::ENCODER_PAYLOAD_SIZE);
       }
       break;
@@ -983,12 +1020,12 @@ void EspHardwareInterface::processPacket(
       break;
 
     case cdc_protocol::RESP_NACK:
-      RCLCPP_WARN(rclcpp::get_logger(kLogger), "ESP NACKed the last command");
+      RCLCPP_WARN(get_logger(), "ESP NACKed the last command");
       break;
 
     default:
       RCLCPP_DEBUG(
-        rclcpp::get_logger(kLogger), "Unhandled packet type 0x%02X (len %u)",
+        get_logger(), "Unhandled packet type 0x%02X (len %u)",
         packet_type, length);
       break;
   }
@@ -1008,7 +1045,7 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
 {
   if (length != cdc_protocol::IMU_PAYLOAD_SIZE) {
     RCLCPP_WARN(
-      rclcpp::get_logger(kLogger), "RESP_IMU length %u (expected %u)",
+      get_logger(), "RESP_IMU length %u (expected %u)",
       length, cdc_protocol::IMU_PAYLOAD_SIZE);
     return;
   }
@@ -1049,10 +1086,10 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
       imu_flip_count_ = 0;
       if (sane) {
         RCLCPP_INFO(
-          rclcpp::get_logger(kLogger), "IMU data valid — publishing /imu/data");
+          get_logger(), "IMU data valid — publishing /imu/data");
       } else {
         RCLCPP_WARN(
-          rclcpp::get_logger(kLogger),
+          get_logger(),
           "IMU reports no gravity (|a| = %.2f m/s^2) — treating it as missing: "
           "/imu/data is NOT published, and the EKF uses wheel odometry for "
           "heading. Check the ESP's IMU.", std::sqrt(a2));
@@ -1065,7 +1102,7 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   }
 
   sensor_msgs::msg::Imu msg;
-  msg.header.stamp = node_->now();
+  msg.header.stamp = get_clock()->now();
   msg.header.frame_id = imu_frame_id_;
 
   msg.linear_acceleration.x = imu_ax_;
@@ -1102,7 +1139,7 @@ void EspHardwareInterface::processServoFeedback(const uint8_t * payload, uint16_
   for (uint8_t i = 0; i < count; i++) {
     if (idx + cdc_protocol::SERVO_FEEDBACK_ENTRY_SIZE > length) {
       RCLCPP_WARN(
-        rclcpp::get_logger(kLogger), "Truncated servo feedback at entry %u/%u", i + 1, count);
+        get_logger(), "Truncated servo feedback at entry %u/%u", i + 1, count);
       break;
     }
 
@@ -1127,7 +1164,7 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
 {
   if (length < cdc_protocol::BATTERY_PAYLOAD_SIZE) {
     RCLCPP_WARN(
-      rclcpp::get_logger(kLogger), "RESP_BATTERY length %u (expected %u)",
+      get_logger(), "RESP_BATTERY length %u (expected %u)",
       length, cdc_protocol::BATTERY_PAYLOAD_SIZE);
     return;
   }
@@ -1141,7 +1178,7 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
   std::memcpy(&soc_percent, &payload[8], sizeof(float));
 
   sensor_msgs::msg::BatteryState msg;
-  msg.header.stamp = node_->now();
+  msg.header.stamp = get_clock()->now();
   msg.voltage = voltage;
   msg.current = current;
   msg.percentage = soc_percent / 100.0f;    // BatteryState wants 0..1
@@ -1180,7 +1217,7 @@ void EspHardwareInterface::handleWifiConfig(const uint8_t * payload, uint16_t le
 
   if (length < kPasswordOffset + kPasswordLen) {
     RCLCPP_WARN(
-      rclcpp::get_logger(kLogger),
+      get_logger(),
       "CMD_WIFI_CONFIG payload is %u B; expected %zu B — ignoring",
       length, kPasswordOffset + kPasswordLen);
     return;
@@ -1195,7 +1232,7 @@ void EspHardwareInterface::handleWifiConfig(const uint8_t * payload, uint16_t le
   const std::string password = field(kPasswordOffset, kPasswordLen);
 
   if (ssid.empty()) {
-    RCLCPP_WARN(rclcpp::get_logger(kLogger), "CMD_WIFI_CONFIG has an empty SSID — ignoring");
+    RCLCPP_WARN(get_logger(), "CMD_WIFI_CONFIG has an empty SSID — ignoring");
     return;
   }
 
@@ -1205,7 +1242,7 @@ void EspHardwareInterface::handleWifiConfig(const uint8_t * payload, uint16_t le
 
   // SSID only — the password must not reach the logs.
   RCLCPP_INFO(
-    rclcpp::get_logger(kLogger), "Wi-Fi credentials relayed from phone (ssid=%s)",
+    get_logger(), "Wi-Fi credentials relayed from phone (ssid=%s)",
     ssid.c_str());
 }
 
@@ -1220,14 +1257,14 @@ void EspHardwareInterface::handleShutdown()
 
   if (!shutdown_publisher_) {
     RCLCPP_ERROR(
-      rclcpp::get_logger(kLogger),
+      get_logger(),
       "CMD_SHUTDOWN arrived but /esp/shutdown has no publisher — the Pi will "
       "NOT halt and the ESP will cut power in ~25 s");
     return;
   }
 
   RCLCPP_WARN(
-    rclcpp::get_logger(kLogger),
+    get_logger(),
     "CMD_SHUTDOWN from the ESP (power button) — acked, relaying to robot_app");
   shutdown_publisher_->publish(std_msgs::msg::Empty());
 }
@@ -1255,14 +1292,14 @@ bool EspHardwareInterface::openSerialPort()
   serial_fd_ = ::open(serial_port_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
   if (serial_fd_ < 0) {
     RCLCPP_ERROR(
-      rclcpp::get_logger(kLogger), "open(%s) failed: %s",
+      get_logger(), "open(%s) failed: %s",
       serial_port_.c_str(), strerror(errno));
     return false;
   }
 
   struct termios options;
   if (tcgetattr(serial_fd_, &options) < 0) {
-    RCLCPP_ERROR(rclcpp::get_logger(kLogger), "tcgetattr failed: %s", strerror(errno));
+    RCLCPP_ERROR(get_logger(), "tcgetattr failed: %s", strerror(errno));
     ::close(serial_fd_);
     serial_fd_ = -1;
     return false;
@@ -1282,7 +1319,7 @@ bool EspHardwareInterface::openSerialPort()
     case 921600: baud = B921600; break;
     default:
       RCLCPP_WARN(
-        rclcpp::get_logger(kLogger),
+        get_logger(),
         "Unsupported baud %d; using 115200 (ignored by CDC-ACM anyway)", serial_baud_);
       baud = B115200;
       break;
@@ -1307,7 +1344,7 @@ bool EspHardwareInterface::openSerialPort()
 
   tcflush(serial_fd_, TCIFLUSH);
   if (tcsetattr(serial_fd_, TCSANOW, &options) < 0) {
-    RCLCPP_ERROR(rclcpp::get_logger(kLogger), "tcsetattr failed: %s", strerror(errno));
+    RCLCPP_ERROR(get_logger(), "tcsetattr failed: %s", strerror(errno));
     ::close(serial_fd_);
     serial_fd_ = -1;
     return false;
@@ -1324,7 +1361,7 @@ bool EspHardwareInterface::openSerialPort()
 
   reconnect_backoff_ = std::chrono::milliseconds(1000);
 
-  RCLCPP_INFO(rclcpp::get_logger(kLogger), "Serial port open: %s", serial_port_.c_str());
+  RCLCPP_INFO(get_logger(), "Serial port open: %s", serial_port_.c_str());
   return true;
 }
 
@@ -1343,7 +1380,7 @@ void EspHardwareInterface::markDisconnected(const char * reason)
     return;
   }
   RCLCPP_ERROR(
-    rclcpp::get_logger(kLogger), "ESP32 link lost (%s); will retry %s",
+    get_logger(), "ESP32 link lost (%s); will retry %s",
     reason, serial_port_.c_str());
   closeSerialPort();
   next_reconnect_attempt_ = std::chrono::steady_clock::now() + reconnect_backoff_;
@@ -1365,7 +1402,7 @@ void EspHardwareInterface::attemptReconnect()
     return;
   }
 
-  RCLCPP_INFO(rclcpp::get_logger(kLogger), "Reconnected; re-running handshake");
+  RCLCPP_INFO(get_logger(), "Reconnected; re-running handshake");
 
   // The ESP rebooted or was replugged, so its encoder origin is unknown —
   // redo what on_activate() established. Servo torque needs no re-enable
@@ -1381,6 +1418,8 @@ void EspHardwareInterface::attemptReconnect()
   std::fill(
     last_servo_commands_.begin(), last_servo_commands_.end(),
     std::numeric_limits<double>::quiet_NaN());
+  last_left_mps_ = std::numeric_limits<double>::quiet_NaN();
+  last_right_mps_ = std::numeric_limits<double>::quiet_NaN();
 }
 
 void EspHardwareInterface::clearBuffer()
@@ -1403,33 +1442,17 @@ void EspHardwareInterface::clearBuffer()
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  ros2_control interface export
+//  ros2_control state handles
 // ════════════════════════════════════════════════════════════════════
 
-std::vector<hardware_interface::StateInterface> EspHardwareInterface::export_state_interfaces()
+void EspHardwareInterface::publishJointStates()
 {
-  std::vector<hardware_interface::StateInterface> state_interfaces;
-  for (size_t i = 0; i < info_.joints.size(); i++) {
-    state_interfaces.emplace_back(
-      hardware_interface::StateInterface(
-        info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_positions_[i]));
-    state_interfaces.emplace_back(
-      hardware_interface::StateInterface(
-        info_.joints[i].name, hardware_interface::HW_IF_VELOCITY, &hw_velocities_[i]));
+  // Non-blocking, like the command read in write(): a contended handle keeps
+  // last cycle's value for one cycle instead of stalling the control loop.
+  for (size_t i = 0; i < position_handles_.size(); i++) {
+    (void)set_state(position_handles_[i], hw_positions_[i], false);
+    (void)set_state(velocity_handles_[i], hw_velocities_[i], false);
   }
-  return state_interfaces;
-}
-
-std::vector<hardware_interface::CommandInterface>
-EspHardwareInterface::export_command_interfaces()
-{
-  std::vector<hardware_interface::CommandInterface> command_interfaces;
-  for (size_t i = 0; i < info_.joints.size(); i++) {
-    command_interfaces.emplace_back(
-      hardware_interface::CommandInterface(
-        info_.joints[i].name, info_.joints[i].command_interfaces[0].name, &hw_commands_[i]));
-  }
-  return command_interfaces;
 }
 
 }  // namespace bonicbot_a2_hardware

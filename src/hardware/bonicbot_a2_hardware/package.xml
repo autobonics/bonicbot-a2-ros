@@ -22,9 +22,6 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
 
-  <!-- cmd_vel_stamper: twist_mux's Twist -> diff_cont's TwistStamped -->
-  <depend>geometry_msgs</depend>
-
   <!-- ros2_control stack brought up by hardware.launch.py -->
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>diff_drive_controller</exec_depend>

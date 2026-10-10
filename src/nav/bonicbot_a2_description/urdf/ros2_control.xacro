@@ -92,8 +92,10 @@
   </xacro:if>
 
   <xacro:unless value="$(arg sim_mode)">
-    <!-- REAL ROBOT HARDWARE -->
-    <ros2_control name="RealRobot" type="system">
+    <!-- REAL ROBOT HARDWARE. On Jazzy this name is also the plugin's node
+         (/bonicbot_a2_esp), which carries /imu/data, /battery_state and the
+         /esp/* relay topics. -->
+    <ros2_control name="bonicbot_a2_esp" type="system">
       <hardware>
         <plugin>bonicbot_a2_hardware/EspHardwareInterface</plugin>
         <param name="serial_port">/dev/esp</param>

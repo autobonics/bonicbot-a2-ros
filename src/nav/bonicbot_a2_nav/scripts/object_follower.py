@@ -10,14 +10,14 @@ ROS parameters (set via --ros-args -p name:=value):
 Topics:
   Sub: /vision/yolo_detections  std_msgs/String     JSON list of detections
   Sub: /face_camera/camera_info      sensor_msgs/CameraInfo
-  Pub: /cmd_vel                 geometry_msgs/Twist
+  Pub: /cmd_vel                 geometry_msgs/TwistStamped
 """
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import CameraInfo
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TwistStamped
 import json
 import math
 import time
@@ -54,7 +54,8 @@ class ObjectFollower(Node):
         self._fx            = None
         self._img_w         = None
 
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        # twist_mux's /cmd_vel lane is TwistStamped (twist_mux.yaml).
+        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
         self.create_subscription(String,     '/vision/yolo_detections', self._detection_cb, 10)
         self.create_subscription(CameraInfo, '/face_camera/camera_info',     self._camera_info_cb, 10)
 
@@ -102,6 +103,13 @@ class ObjectFollower(Node):
             
             self._last_seen = self.get_clock().now()
 
+    def _publish(self, twist):
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'base_link'
+        msg.twist = twist
+        self.cmd_pub.publish(msg)
+
     def _control_loop(self):
         """20 Hz control loop using Smooth Pursuit PD logic."""
         twist = Twist()
@@ -111,7 +119,7 @@ class ObjectFollower(Node):
 
         dt = (self.get_clock().now() - self._last_seen).nanoseconds / 1e9
         if dt > LOST_TIMEOUT:
-            self.cmd_pub.publish(twist) # STOP
+            self._publish(twist) # STOP
             self._smooth_distance = self._smooth_angle = None
             self._last_seen = None
             return
@@ -140,7 +148,7 @@ class ObjectFollower(Node):
             speed_factor = max(0.4, 1.0 - abs(twist.angular.z) / MAX_ANGULAR)
             twist.linear.x = max(-MAX_LINEAR * 0.5, min(linear_v * speed_factor, MAX_LINEAR))
 
-        self.cmd_pub.publish(twist)
+        self._publish(twist)
 
 
 def main(args=None):
@@ -152,7 +160,7 @@ def main(args=None):
         pass
     finally:
         try:
-            node.cmd_pub.publish(Twist())
+            node._publish(Twist())
         except Exception:
             pass
         node.destroy_node()

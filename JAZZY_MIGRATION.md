@@ -10,7 +10,9 @@ ROS 2 Jazzy (Ubuntu 24.04), with Gazebo Harmonic for the simulation.
 3. The S-series ROS repos
 4. `bonicOS-robot-app` last
 
-robot_app is **not** part of steps 1–2. Its side of the interface did not change.
+robot_app is **not** part of steps 1–2. This port follows the standard Jazzy setup and
+does not keep robot_app's current interface working. It breaks in two places until step 4
+(see the end of this file).
 
 ---
 
@@ -21,11 +23,15 @@ robot_app is **not** part of steps 1–2. Its side of the interface did not chan
 | Base image | `ros:humble-ros-base` → `ros:jazzy-ros-base`, all `ros-humble-*` → `ros-jazzy-*` | — |
 | `v4l2_camera` in the image | replaced with `camera_ros` | The package already depended on `camera_ros`; the apt list was stale |
 | tf2 deadlock guard | **removed** from `Dockerfile.ros` | Humble shipped the bug (#966) in 0.25.23 and the fix (#982) later. Jazzy got both in the same release (0.36.23), so no Jazzy tf2 has the bug without the fix |
-| **diff_cont input** | `use_stamped_vel` removed; diff_cont now listens on `/diff_cont/cmd_vel` as **TwistStamped** | Jazzy's diff_drive_controller only accepts TwistStamped; `~/cmd_vel_unstamped` no longer exists |
-| **twist_mux** | `use_stamped: false` set explicitly | twist_mux 4.5 (Jazzy) **defaults to stamped** when this is unset. It would stop hearing robot_app, Nav2 and the joystick, all of which send plain Twist |
-| New node: `cmd_vel_stamper` (C++, hardware package) | twist_mux → `/cmd_vel_muxed` (Twist) → stamper → `/diff_cont/cmd_vel` (TwistStamped) | Lets every publisher keep sending Twist on `/cmd_vel`, robot_app included |
+| **Velocity commands** | **TwistStamped end to end.** twist_mux `use_stamped: true` and outputs straight into `/diff_cont/cmd_vel`; Nav2 `enable_stamped_cmd_vel: true` (controller_server, velocity_smoother, behavior_server); teleop_twist_joy `publish_stamped_twist: true`; `object_follower.py` publishes TwistStamped; diff_cont's `use_stamped_vel` removed | Jazzy's diff_drive_controller only accepts TwistStamped, and twist_mux 4.5 defaults to stamped. Kilted makes stamped the Nav2 default too |
+| **ESP hardware plugin** | Moved to the Jazzy hardware-component API: `on_init(HardwareComponentInterfaceParams)`; the framework creates and owns the state/command interfaces (no more `export_*_interfaces()`); handles are resolved once in `on_configure()` and accessed non-blocking in `read()`/`write()` | The old API is deprecated on Jazzy |
+| ESP plugin node | Uses the node ros2_control gives each component (`get_node()`, spun by the controller_manager's executor). The plugin's own node, executor and spin thread are gone | One thread fewer, and the standard place for a component's topics. The node is now `/bonicbot_a2_esp`, after the renamed `<ros2_control>` block (was `RealRobot`) |
+| ESP plugin, logging and time | Uses the component's `get_logger()` and `get_clock()` | Standard; stamps follow the controller_manager's clock |
+| ESP plugin, wheel resend cache | Made a member and reset on activate and on reconnect (it was a function `static`) | A rebooted ESP could otherwise miss an unchanged wheel command after a reconnect |
 | controller_manager URDF | No longer passed as a parameter | Jazzy's controller_manager reads the URDF from the `/robot_description` **topic** (robot_state_publisher already publishes it) |
-| Spawners | Each passes `--param-file controllers.yaml` (diff_cont also gets the calibration overrides file, after it) | The documented Jazzy way to give a controller its parameters. The overrides still win, because they always come after controllers.yaml |
+| **Spawner** | **One** spawner for all seven controllers, with `--param-file controllers.yaml` (plus the calibration overrides file, after it) | One process and one controller_manager handshake instead of seven. `--param-file` is the documented Jazzy way to give controllers their parameters. The spawner forwards a file only to controllers that have a section in it, so the overrides reach diff_cont alone |
+| **Nav2 composition** | All Nav2 servers run as components in one `component_container_isolated` process (`nav2_container`). `use_composition:=false` gives one process per server | nav2_bringup's default on Jazzy. On the Pi: one process and one DDS participant instead of ten |
+| Nav2 recoveries | behavior_server's `cmd_vel` → `cmd_vel_nav`, so spin/backup/drive_on_heading pass through the velocity smoother | Same as nav2_bringup. Recoveries are now acceleration-limited like path following |
 | Sim gripper mimic joints | `finger2` joints: mimic params and command interface removed from the sim `<ros2_control>` tag | Jazzy reads mimic from the URDF `<mimic>` tag (already in `gripper.xacro`) and **refuses to start the whole system** if a mimic joint has a command interface |
 | **slam_toolbox** | Launched as a `LifecycleNode`, then configured and activated | On Jazzy it is a lifecycle node. As a plain `Node` it stays unconfigured: the process runs, but there is no `/map` and no `map->odom` |
 | Nav2 `bt_navigator` | `plugin_lib_names` list removed | Jazzy loads all built-in BT plugins itself and *appends* this list, so listing built-ins registers them twice and bt_navigator fails |
@@ -35,20 +41,22 @@ robot_app is **not** part of steps 1–2. Its side of the interface did not chan
 | Nav2 RPP | `use_interpolation` removed | The parameter no longer exists (RPP always interpolates) |
 | Nav2 `*_rclcpp_node` sections | removed | Those helper nodes no longer exist |
 | Gazebo | `IGN_GAZEBO_RESOURCE_PATH` dropped | Harmonic reads `GZ_SIM_RESOURCE_PATH` only. Worlds and sensors already used Harmonic names |
-| Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml` | Jazzy deprecates the old variable (it still works, with a warning). robot_app still sets `ROS_LOCALHOST_ONLY=1`, which Jazzy treats the same |
-| `stop_session.sh` | Also sweeps `camera_ros/camera_node` | It runs from `/opt/ros`, so no other pattern caught it, and a survivor holds the camera |
+| Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml` | Jazzy deprecates the old variable |
+| `stop_session.sh` | Also sweeps `camera_ros/camera_node` and `component_container` | Both run from `/opt/ros`, so no other pattern caught them; a surviving camera node holds the sensor |
 
 `nav2_params_sim.yaml` received the same Nav2 changes as `nav2_params.yaml`.
 
 ### What did NOT change
 
-- **robot_app's interface:** Twist on `/cmd_vel`, every topic name, the launch file
-  names and arguments, the Nav2 action names, and the slam_toolbox
-  `paused_new_measurements` parameter.
-- **The ESP hardware plugin (C++):** it uses `on_init(HardwareInfo)` and
-  `export_*_interfaces()`. Jazzy marks these deprecated but supports them in every
-  Jazzy release, so the plugin compiles as-is, with deprecation warnings. Moving it to
-  the new API is for before Kilted, not for this port.
+- **The ESP firmware and CDC protocol:** every byte on the wire is the same, and so is
+  the plugin's control logic (handshake, reconnect, servo mapping, dead-IMU gate, Wi-Fi
+  relay, face display). Only its ROS-facing API moved.
+- **IMU and battery** are still published by the plugin itself (`/imu/data`,
+  `/battery_state`), not through `imu_sensor_broadcaster`. The dead-IMU gate stops
+  publishing when the ESP reports no gravity, and a broadcaster would publish those
+  zeros to the EKF anyway.
+- **Topic names, launch file names and arguments, the Nav2 action names**, and the
+  slam_toolbox `paused_new_measurements` parameter.
 - **Tuning:** all Nav2, EKF and SLAM values are unchanged.
 
 ---
@@ -191,31 +199,34 @@ Each line checks one of the Jazzy changes above. Run in sim first, then on the P
 |---|---|---|
 | 1 | All 7 controllers **active** | `ros2 control list_controllers`. Read every line: the scripts' own check does not catch `inactive` (see Open items) |
 | 2 | URDF reached the controller manager | No repeating "Waiting for data on 'robot_description' topic" in the hardware log |
-| 3 | diff_cont is stamped and fed | `ros2 topic info -v /diff_cont/cmd_vel`: type `TwistStamped`, publisher `cmd_vel_stamper` |
-| 4 | twist_mux still takes plain Twist | `ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}"` moves the base; stops ~0.5 s after Ctrl+C |
+| 3 | Stamped chain | `ros2 topic info -v /diff_cont/cmd_vel`: type `TwistStamped`, publisher `twist_mux` |
+| 4 | Driving through twist_mux | `ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/TwistStamped "{twist: {linear: {x: 0.1}}}"` moves the base; it stops ~0.5 s after Ctrl+C. A zero header stamp is accepted: diff_cont replaces it with the current time |
 | 5 | Joystick wins over `/cmd_vel` | Hold the enable button while #4 is publishing |
 | 6 | Calibration overrides applied | `ros2 param get /diff_cont wheel_radius` equals the robot's value, not 0.06 |
 | 7 | Arms, head and grippers move | Same commands as on Humble; in sim, `finger2` follows `finger1` |
+| 7b | Plugin node | `ros2 node list` shows `/bonicbot_a2_esp`; `/imu/data` and `/battery_state` publish; unplug and replug the ESP USB and driving resumes |
 | 8 | slam_toolbox active | `ros2 lifecycle get /slam_toolbox` → `active`; `/map` publishes |
-| 9 | Nav2 comes up | No "already registered" from bt_navigator; `ros2 lifecycle get /bt_navigator` → `active` |
+| 9 | Nav2 comes up, composed | `ros2 component list` shows every server under `/nav2_container`; no "already registered" from bt_navigator; `ros2 lifecycle get /bt_navigator` → `active` |
 | 10 | A navigation goal completes | Including one recovery (spin/backup) |
 | 11 | Camera | `ros2 topic hz /face_camera/image_raw` ≈ 6 Hz |
 | 12 | Nothing leaks to Wi-Fi | From a laptop on the same network with default ROS settings, `ros2 topic list` shows none of the robot's topics |
 
 ---
 
+## What breaks until robot_app is ported (step 4)
+
+- **Driving from the app:** robot_app publishes plain Twist on `/cmd_vel`, and
+  twist_mux now only accepts TwistStamped. Set `cmd_vel_stamped: True` for series A
+  in `app/config.py` (the flag already exists) and make sure the publisher fills the
+  header stamp.
+- **The robot_app image itself:** it is built on this image, so it moves to Python 3.12
+  and Ubuntu 24.04, whose pip refuses system-wide installs without
+  `--break-system-packages`. Every pinned wheel needs checking on 3.12/arm64, along with
+  the `ros_distro` defaults in `app/config.py` and the bonicOS-host fleet compose
+  environment.
+
 ## Open items
 
-- **robot_app (step 4):** Python 3.12 and Ubuntu 24.04's pip rules in its Dockerfile,
-  checking that every pinned wheel installs on 3.12/arm64, the `ros_distro` defaults in
-  `app/config.py`, the bonicOS-host fleet compose environment, and rebuilding `bonicos`
-  on the new base image. Its `cmd_vel_stamped` flag can stay false: the stamper covers it.
-- **The fully stamped end state:** once robot_app publishes TwistStamped
-  (`cmd_vel_stamped`), set twist_mux `use_stamped: true`, Nav2
-  `enable_stamped_cmd_vel: true` and teleop `publish_stamped_twist: true`, then remove
-  `cmd_vel_stamper`. Kilted already defaults Nav2 to stamped.
-- **ESP plugin API:** move to `on_init(HardwareComponentInterfaceParams)` and
-  framework-owned interfaces before any move past Jazzy.
 - **Controller check in the session scripts:** `grep -v 'active'` also drops
   `inactive` lines, so a configured-but-not-activated controller goes unreported. This
   predates the port.

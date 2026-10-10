@@ -66,6 +66,9 @@ PATTERNS=(
   "amcl|map_server|planner_server|controller_server|bt_navigator"
   "behavior_server|smoother_server|waypoint_follower|velocity_smoother"
   "lifecycle_manager"
+  # Composed Nav2 (navigation.launch.py, use_composition:=true) runs every
+  # server inside this one process, from /opt/ros.
+  "component_container"
   # camera_ros runs out of /opt/ros, so the install-tree pattern misses it,
   # and a survivor keeps the CSI sensor open for the next session.
   "rplidar|v4l2_camera|camera_ros/camera_node"

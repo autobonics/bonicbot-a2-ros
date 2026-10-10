@@ -68,25 +68,15 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': 'true'}.items(),
     )
 
-    # Same chain as hardware.launch.py: twist_mux arbitrates plain Twist and
-    # cmd_vel_stamper turns the winner into the TwistStamped diff_cont needs.
-    # The stamper MUST be on sim time — diff_cont ages each command against
-    # the /clock it runs on, and a wall-clock stamp would be dropped as stale.
+    # TwistStamped end to end, as in hardware.launch.py. diff_cont ages each
+    # command's stamp against the /clock it runs on (cmd_vel_timeout), so every
+    # publisher into twist_mux must stamp with sim time here.
     twist_mux = Node(
         package='twist_mux',
         executable='twist_mux',
         parameters=[os.path.join(hardware_share, 'config', 'twist_mux.yaml'),
                     {'use_sim_time': True}],
-        remappings=[('/cmd_vel_out', '/cmd_vel_muxed')],
-    )
-
-    cmd_vel_stamper = Node(
-        package='bonicbot_a2_hardware',
-        executable='cmd_vel_stamper',
-        name='cmd_vel_stamper',
-        parameters=[{'use_sim_time': True}],
-        remappings=[('cmd_vel_in', '/cmd_vel_muxed'),
-                    ('cmd_vel_out', '/diff_cont/cmd_vel')],
+        remappings=[('/cmd_vel_out', '/diff_cont/cmd_vel')],
     )
 
     # ── Gazebo ───────────────────────────────────────────────────
@@ -148,27 +138,28 @@ def generate_launch_description():
     )
 
     # ── controllers (identical set to hardware.launch.py) ────────
-    # --param-file for the same reason as hardware.launch.py: on Jazzy the
-    # spawner is the documented way to give a controller its parameters.
-    controllers_yaml = os.path.join(hardware_share, 'config', 'controllers.yaml')
-
-    def spawner(name):
-        return Node(
-            package='controller_manager',
-            executable='spawner',
-            arguments=[
-                name,
-                '--param-file', controllers_yaml,
-                '--controller-manager-timeout', '120',
-                '--switch-timeout', '50',
-                # See hardware.launch.py for why --service-call-timeout is raised:
-                # all seven spawners race a cold controller_manager, and the 10s
-                # default leaves a controller loaded-but-unconfigured on timeout,
-                # which looks healthy in the node graph but accepts no commands.
-                '--service-call-timeout', '60',
-            ],
-            parameters=[{'use_sim_time': True}],
-        )
+    # One spawner for all seven, with --param-file — see hardware.launch.py.
+    spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=[
+            'diff_cont',
+            'joint_broad',
+            'left_arm_controller',
+            'right_arm_controller',
+            'head_controller',
+            'left_gripper_controller',
+            'right_gripper_controller',
+            '--param-file', os.path.join(hardware_share, 'config', 'controllers.yaml'),
+            '--controller-manager-timeout', '120',
+            '--switch-timeout', '50',
+            # See hardware.launch.py for why --service-call-timeout is raised:
+            # the 10s default can leave a controller loaded-but-unconfigured,
+            # which looks healthy in the node graph but accepts no commands.
+            '--service-call-timeout', '60',
+        ],
+        parameters=[{'use_sim_time': True}],
+    )
 
     ekf = Node(
         package='robot_localization',
@@ -186,19 +177,12 @@ def generate_launch_description():
         rsp,
         joystick,
         twist_mux,
-        cmd_vel_stamper,
         gazebo,
         spawn_entity,
         bridge,
         image_bridge,
         camera_info_bridge,
         real_camera,
-        spawner('diff_cont'),
-        spawner('joint_broad'),
-        spawner('left_arm_controller'),
-        spawner('right_arm_controller'),
-        spawner('head_controller'),
-        spawner('left_gripper_controller'),
-        spawner('right_gripper_controller'),
+        spawner,
         ekf,
     ])

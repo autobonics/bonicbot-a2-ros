@@ -10,7 +10,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -43,11 +42,6 @@ ament_target_dependencies(
 )
 
 pluginlib_export_plugin_description_file(hardware_interface ${PROJECT_NAME}.xml)
-
-# ── Twist -> TwistStamped bridge, twist_mux -> diff_cont (see the source) ──
-add_executable(cmd_vel_stamper src/cmd_vel_stamper.cpp)
-ament_target_dependencies(cmd_vel_stamper geometry_msgs rclcpp)
-install(TARGETS cmd_vel_stamper DESTINATION lib/${PROJECT_NAME})
 
 install(
   TARGETS ${PROJECT_NAME}
