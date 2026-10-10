@@ -38,6 +38,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "realtime_tools/realtime_publisher.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/empty.hpp"
@@ -218,8 +219,17 @@ private:
   int servo_feedback_decimation_ = 1;
 
   // ── ROS interfaces on get_node(): telemetry and Wi-Fi relay ──
-  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr battery_publisher_;
+  // IMU (~25 Hz) and battery (1 Hz) are published from read(), i.e. from the
+  // control loop, so they go through RealtimePublisher: the loop only hands
+  // the message over (try_publish, never blocks) and a background thread does
+  // the actual publish. If that thread is still busy, the sample is dropped —
+  // harmless for periodic telemetry, the next one is 40 ms behind.
+  //
+  // The Wi-Fi credentials and power-button publishers below are deliberately
+  // NOT wrapped: they fire once per event and must never be dropped.
+  std::unique_ptr<realtime_tools::RealtimePublisher<sensor_msgs::msg::Imu>> imu_publisher_;
+  std::unique_ptr<realtime_tools::RealtimePublisher<sensor_msgs::msg::BatteryState>>
+  battery_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr wifi_credentials_publisher_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr wifi_status_subscription_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr face_display_subscription_;

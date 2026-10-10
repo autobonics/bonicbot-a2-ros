@@ -228,9 +228,11 @@ hardware_interface::CallbackReturn EspHardwareInterface::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  imu_publisher_ = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data", 10);
+  imu_publisher_ = std::make_unique<realtime_tools::RealtimePublisher<sensor_msgs::msg::Imu>>(
+    node->create_publisher<sensor_msgs::msg::Imu>("/imu/data", 10));
   battery_publisher_ =
-    node->create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10);
+    std::make_unique<realtime_tools::RealtimePublisher<sensor_msgs::msg::BatteryState>>(
+    node->create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10));
   wifi_credentials_publisher_ =
     node->create_publisher<std_msgs::msg::String>("/esp/wifi_credentials", 10);
 
@@ -1124,7 +1126,7 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   // (slip rejection). Changing this rebalances that trade-off.
   msg.angular_velocity_covariance[8] = 0.0001;
 
-  imu_publisher_->publish(msg);
+  (void)imu_publisher_->try_publish(msg);
 }
 
 void EspHardwareInterface::processServoFeedback(const uint8_t * payload, uint16_t length)
@@ -1187,7 +1189,7 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
   msg.power_supply_technology =
     sensor_msgs::msg::BatteryState::POWER_SUPPLY_TECHNOLOGY_LION;
   msg.present = true;
-  battery_publisher_->publish(msg);
+  (void)battery_publisher_->try_publish(msg);
 
   // No servo census on CDC's RESP_BATTERY (12B: voltage/current/SOC% only) —
   // that trailing active-count + online-IDs field only exists on the BLE
