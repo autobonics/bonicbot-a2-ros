@@ -10,3 +10,6 @@ secrets/
 models/
 logs/
 docs/
+
+# Source deps imported from external.repos (vcs import src/external < external.repos)
+src/external/

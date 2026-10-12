@@ -21,6 +21,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | Area | Change | Why |
 |---|---|---|
 | Base image | `ros:humble-ros-base` → `ros:jazzy-ros-base`, all `ros-humble-*` → `ros-jazzy-*` | — |
+| **Lidar driver** | `rplidar_ros` built from source: Slamtec's `ros2` branch, pinned to commit `24cc9b6d` in `external.repos`, imported into `src/external/` (gitignored). `ros-jazzy-rplidar-ros` removed from the image | Jazzy's apt package (2.1.0) bundles SDK 1.12, which cannot start an RPLIDAR C1 scan (`Cannot start scan: 80008000`, A2 Pi 5). Slamtec says no newer Jazzy release is coming soon ([#164](https://github.com/Slamtec/rplidar_ros/issues/164)). The pinned commit has SDK 2.1 and C1 support; verified on the A2: 10 Hz, 720 points/rev |
 | `v4l2_camera` in the image | replaced with `camera_ros` | The package already depended on `camera_ros`; the apt list was stale |
 | tf2 deadlock guard | **removed** from `Dockerfile.ros` | Humble shipped the bug (#966) in 0.25.23 and the fix (#982) later. Jazzy got both in the same release (0.36.23), so no Jazzy tf2 has the bug without the fix |
 | **Velocity commands** | **TwistStamped end to end.** twist_mux `use_stamped: true` and outputs straight into `/diff_cont/cmd_vel`; Nav2 `enable_stamped_cmd_vel: true` (controller_server, velocity_smoother, behavior_server); teleop_twist_joy `publish_stamped_twist: true`; `object_follower.py` publishes TwistStamped; diff_cont's `use_stamped_vel` removed | Jazzy's diff_drive_controller only accepts TwistStamped, and twist_mux 4.5 defaults to stamped. Kilted makes stamped the Nav2 default too |
@@ -128,7 +129,8 @@ git clone -b jazzy <repo-url> bonicbot-a2-ros
 cd bonicbot-a2-ros
 sudo ./scripts/setup_udev.sh          # /dev/esp, /dev/lidar
 source /opt/ros/jazzy/setup.bash
-rosdep install --from-paths src/hardware src/nav --ignore-src -r -y
+vcs import src/external < external.repos   # on the Mac, before syncing (or clone by hand, see the file)
+rosdep install --from-paths src/hardware src/nav src/external --ignore-src -r -y
 colcon build --packages-up-to bonicbot_a2_hardware bonicbot_a2_nav \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```

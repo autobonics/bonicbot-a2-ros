@@ -1,0 +1,20 @@
+# Source dependencies built in this workspace instead of installed from apt.
+#
+# Import into src/external/ (gitignored, never committed):
+#     vcs import src/external < external.repos
+# or by hand: git clone <url> src/external/<name> && git -C ... checkout <version>
+#
+# rplidar_ros: Jazzy's apt package (ros-jazzy-rplidar-ros 2.1.0) bundles
+# Slamtec's old SDK 1.12, which cannot start an RPLIDAR C1 scan ("Cannot start
+# scan: 80008000", seen on the A2 Pi 5, 2026-10-12). It is built from an older
+# third-party fork, and Slamtec has said no newer Jazzy release is coming soon
+# (github.com/Slamtec/rplidar_ros/issues/164). C1 support is on Slamtec's ros2
+# branch (commit 70d91854, 2023-10-31). Pinned to that branch's latest commit,
+# which also carries the newer-compiler build fix. NOT the 2.1.5 tag: that tag
+# is on Slamtec's ROS 1 branch. Drop this entry and go back to apt once a
+# Jazzy release with C1 support is published.
+repositories:
+  rplidar_ros:
+    type: git
+    url: https://github.com/Slamtec/rplidar_ros.git
+    version: 24cc9b6dea97e045bda1408eaa867ce730fd3fc3
