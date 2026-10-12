@@ -45,7 +45,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml` | Jazzy deprecates the old variable |
 | `stop_session.sh` | Also sweeps `camera_ros/camera_node` and `component_container` | Both run from `/opt/ros`, so no other pattern caught them; a surviving camera node holds the sensor |
 
-`nav2_params_sim.yaml` received the same Nav2 changes as `nav2_params.yaml`.
+The unused `bonicbot_a2_sim/config/nav2_params_sim.yaml` was deleted: nothing loads it, and navigation uses `nav2_params.yaml` in simulation too.
 
 ### What did NOT change
 

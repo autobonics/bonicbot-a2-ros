@@ -51,7 +51,12 @@ PATTERNS=(
   "ruby .*ign gazebo"                # Gazebo's ruby wrapper
   "robot_state_publisher"
   "ros_gz_bridge|parameter_bridge|image_bridge"
-  "ros2_control_node|controller_manager|spawner"
+  # NOT a bare "spawner": pkill -f matches anywhere in the command line, and
+  # the Ubuntu desktop runs `gvfsd-trash --spawner ...`, which that pattern
+  # killed on every run (found on the dev PC, 2026-09-25, and fixed in S1 the
+  # same day). The controller spawner is already matched by
+  # "controller_manager" — its command line is .../lib/controller_manager/spawner.
+  "ros2_control_node|controller_manager"
   "twist_mux"
   # topic_tools relays (joint_states throttle). MUST be listed explicitly:
   # the binary lives in /opt/ros/jazzy/lib/topic_tools/, so neither the

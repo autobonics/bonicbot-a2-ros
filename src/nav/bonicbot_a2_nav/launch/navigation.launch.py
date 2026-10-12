@@ -172,6 +172,14 @@ def generate_launch_description():
         )
         return GroupAction(condition=condition, actions=[composed, standalone])
 
+    # The params file goes to the CONTAINER PROCESS too, as nav2_bringup does.
+    # launch hands each composable node only its own section of the file, and
+    # the costmaps are not composable nodes: controller_server and
+    # planner_server create local_costmap / global_costmap as child nodes
+    # inside the process. Those children read the process's global
+    # --params-file. Without this they ran on Nav2's built-in defaults (global
+    # frame `map`, a 0.1 m round robot, default layers) with no error at all.
+    #
     # component_container_isolated: one single-threaded executor per component,
     # so a busy server cannot starve another's callbacks inside the process.
     container = Node(
@@ -180,7 +188,7 @@ def generate_launch_description():
         executable='component_container_isolated',
         name='nav2_container',
         output='screen',
-        parameters=[{'use_sim_time': use_sim_time}],
+        parameters=[params_file, {'use_sim_time': use_sim_time}],
     )
 
     # Localization ONLY when slam:=false — slam_toolbox owns map->odom otherwise.

@@ -62,6 +62,12 @@ bt_navigator:
     # Raised to 600 ms. Only cost is that a genuinely dead server takes 600 ms
     # instead of 20 ms to detect — irrelevant beside the 5 s wait recovery.
     default_server_timeout: 600
+    # The error codes the default behaviour trees report (Jazzy's stock
+    # nav2_params.yaml lists the same two). Unset, bt_navigator falls back to
+    # these and warns on every start.
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
     
 
 controller_server:
@@ -109,14 +115,13 @@ controller_server:
       # Relaxed 2026-08-25 from 0.10 alongside yaw_goal_tolerance below, for the
       # same reason: the base now accelerates at 0.5 m/s^2 instead of 2.5, so it
       # coasts into the goal more slowly and a tight window is easy to overshoot
-      # and then hunt around. 15cm matches what nav2_params_sim.yaml already uses.
+      # and then hunt around.
       xy_goal_tolerance: 0.15
       # Relaxed 2026-08-25 from 0.09 (5.2 deg). The robot was physically arriving
       # at the goal but the checker never fired, so it replanned forever. 0.09 was
       # chosen when acc_lim_theta was 3.2; it is now 2.0 to match what the base can
       # actually do, which means the robot settles into the goal heading more slowly
-      # and needs more margin. 0.20 rad = 11.5 deg. nav2_params_sim.yaml independently
-      # arrived at 0.15 for the same reason.
+      # and needs more margin. 0.20 rad = 11.5 deg.
       yaw_goal_tolerance: 0.20
     FollowPath:
       # ── RegulatedPurePursuitController, replacing DWB (2026-08-27) ──────
