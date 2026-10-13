@@ -216,17 +216,11 @@ Each line checks one of the Jazzy changes above. Run in sim first, then on the P
 
 ---
 
-## What breaks until robot_app is ported (step 4)
+## robot_app
 
-- **Driving from the app:** robot_app publishes plain Twist on `/cmd_vel`, and
-  twist_mux now only accepts TwistStamped. Set `cmd_vel_stamped: True` for series A
-  in `app/config.py` (the flag already exists) and make sure the publisher fills the
-  header stamp.
-- **The robot_app image itself:** it is built on this image, so it moves to Python 3.12
-  and Ubuntu 24.04, whose pip refuses system-wide installs without
-  `--break-system-packages`. Every pinned wheel needs checking on 3.12/arm64, along with
-  the `ros_distro` defaults in `app/config.py` and the bonicOS-host fleet compose
-  environment.
+robot_app's `jazzy` branch is the matching port: it publishes TwistStamped, reads Jazzy's
+Nav2 results, builds on this image with Python 3.12, and is Jazzy-only. Its
+`JAZZY_MIGRATION.md` has the details.
 
 ## Open items
 
