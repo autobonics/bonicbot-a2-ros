@@ -18,6 +18,7 @@
 #ifndef BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
 #define BONICBOT_A2_HARDWARE__ESP_HARDWARE_INTERFACE_HPP_
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -203,6 +204,12 @@ private:
   // how many consecutive samples have disagreed with that.
   bool imu_alive_ = false;
   int imu_flip_count_ = 0;
+  // Gyro zero-offset tracking (processImu): the offset estimated while the
+  // robot stands still, subtracted from every published gyro reading.
+  std::array<double, 3> gyro_bias_{0.0, 0.0, 0.0};   // rad/s
+  double still_for_s_ = 0.0;   // wheels stopped AND commanded still, for this long (read())
+  std::chrono::steady_clock::time_point last_imu_time_{};
+  double gyro_bias_logged_z_ = 0.0;
   int imu_decimator_ = 0;
   std::string imu_frame_id_ = "imu_link";
 

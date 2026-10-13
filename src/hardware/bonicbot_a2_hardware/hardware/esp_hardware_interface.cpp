@@ -522,6 +522,17 @@ hardware_interface::return_type EspHardwareInterface::read(
       hw_velocities_[i] = (hw_positions_[i] - prev_positions_[i]) / dt;
       prev_positions_[i] = hw_positions_[i];
     }
+
+    // Is the robot standing still? Both wheels measured stopped AND commanded
+    // still — for gyro zero-offset tracking (processImu). The command check
+    // keeps a robot starting to move out of it before the encoders show it.
+    constexpr double kStillWheelRadS = 0.05;   // ~3 mm/s at the wheel
+    const bool still =
+      std::fabs(hw_velocities_[left_wheel_idx_]) < kStillWheelRadS &&
+      std::fabs(hw_velocities_[right_wheel_idx_]) < kStillWheelRadS &&
+      std::fabs(hw_commands_[left_wheel_idx_]) < 1e-3 &&
+      std::fabs(hw_commands_[right_wheel_idx_]) < 1e-3;
+    still_for_s_ = still ? still_for_s_ + dt : 0.0;
   }
   publishJointStates();
 
@@ -1043,6 +1054,19 @@ constexpr double kImuMinAccel = 4.0;       // m/s^2
 // Consecutive samples (at ~25 Hz) needed to switch the dead-IMU gate.
 constexpr int kImuFlipSamples = 5;
 
+// Gyro zero-offset tracking (processImu). ekf.yaml integrates heading from
+// this gyro, so any offset becomes heading drift with the robot parked:
+// measured on the A2 Pi 5 2026-10-13, +0.018 deg/s, about 1 deg per minute,
+// which AMCL does not correct while the robot stands still. Whenever the
+// wheels have been stopped and commanded still for kStillSettleS, the gyro
+// must read zero, and whatever it reads is folded into the offset (time
+// constant kBiasTauS). Same mechanism as bonicOS-s1-ros, where a bad gyro
+// calibration at ESP boot left +0.87 deg/s.
+constexpr double kStillSettleS = 1.0;    // stopped this long before trusting "still"
+constexpr double kBiasTauS = 2.0;        // offset follows the still reading with this time constant
+constexpr double kBiasMaxStep = 0.05;    // rad/s: farther from the offset than this = real motion (lifted and turned), ignored
+constexpr double kBiasMax = 0.1;         // rad/s: never trust an offset larger than this
+
 void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
 {
   if (length != cdc_protocol::IMU_PAYLOAD_SIZE) {
@@ -1103,6 +1127,30 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
     return;
   }
 
+  {
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = last_imu_time_.time_since_epoch().count() == 0 ? 0.0 :
+      std::chrono::duration<double>(now - last_imu_time_).count();
+    last_imu_time_ = now;
+    if (still_for_s_ >= kStillSettleS && dt > 0.0 && dt < 0.5) {
+      const double raw[3] = {imu_gx_, imu_gy_, imu_gz_};
+      const double a = std::min(1.0, dt / kBiasTauS);
+      for (int k = 0; k < 3; k++) {
+        if (std::fabs(raw[k] - gyro_bias_[k]) < kBiasMaxStep) {
+          gyro_bias_[k] = std::clamp(
+            gyro_bias_[k] + a * (raw[k] - gyro_bias_[k]), -kBiasMax, kBiasMax);
+        }
+      }
+      if (std::fabs(gyro_bias_[2] - gyro_bias_logged_z_) > 0.002) {
+        gyro_bias_logged_z_ = gyro_bias_[2];
+        RCLCPP_INFO(
+          get_logger(),
+          "gyro zero offset (robot still): z %+.4f rad/s (%+.2f deg/s)",
+          gyro_bias_[2], gyro_bias_[2] / kDegToRad);
+      }
+    }
+  }
+
   sensor_msgs::msg::Imu msg;
   msg.header.stamp = get_clock()->now();
   msg.header.frame_id = imu_frame_id_;
@@ -1110,9 +1158,9 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   msg.linear_acceleration.x = imu_ax_;
   msg.linear_acceleration.y = imu_ay_;
   msg.linear_acceleration.z = imu_az_;
-  msg.angular_velocity.x = imu_gx_;
-  msg.angular_velocity.y = imu_gy_;
-  msg.angular_velocity.z = imu_gz_;
+  msg.angular_velocity.x = imu_gx_ - gyro_bias_[0];
+  msg.angular_velocity.y = imu_gy_ - gyro_bias_[1];
+  msg.angular_velocity.z = imu_gz_ - gyro_bias_[2];
 
   msg.orientation_covariance[0] = -1.0;   // no orientation estimate
 
