@@ -22,6 +22,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 |---|---|---|
 | Base image | `ros:humble-ros-base` → `ros:jazzy-ros-base`, all `ros-humble-*` → `ros-jazzy-*` | — |
 | **Lidar driver** | `rplidar_ros` built from source: Slamtec's `ros2` branch, pinned to commit `24cc9b6d` in `external.repos`, imported into `src/external/` (gitignored). `ros-jazzy-rplidar-ros` removed from the image | Jazzy's apt package (2.1.0) bundles SDK 1.12, which cannot start an RPLIDAR C1 scan (`Cannot start scan: 80008000`, A2 Pi 5). Slamtec says no newer Jazzy release is coming soon ([#164](https://github.com/Slamtec/rplidar_ros/issues/164)). The pinned commit has SDK 2.1 and C1 support; verified on the A2: 10 Hz, 720 points/rev |
+| **Camera library** | `libcamera` (Raspberry Pi fork `v0.7.2+rpt20260817`) and `camera_ros` (`0.7.0`) built from source, pinned in `external.repos`. `ros-jazzy-camera-ros` removed from the image; `camera.launch.py` picks the sensor id per board | Upstream libcamera, which ROS packages, finds no CSI camera on a Pi 5 under Raspberry Pi's kernel (node names differ; see "Camera on the Pi 5") |
 | `v4l2_camera` in the image | replaced with `camera_ros` | The package already depended on `camera_ros`; the apt list was stale |
 | tf2 deadlock guard | **removed** from `Dockerfile.ros` | Humble shipped the bug (#966) in 0.25.23 and the fix (#982) later. Jazzy got both in the same release (0.36.23), so no Jazzy tf2 has the bug without the fix |
 | **Velocity commands** | **TwistStamped end to end.** twist_mux `use_stamped: true` and outputs straight into `/diff_cont/cmd_vel`; Nav2 `enable_stamped_cmd_vel: true` (controller_server, velocity_smoother, behavior_server); teleop_twist_joy `publish_stamped_twist: true`; `object_follower.py` publishes TwistStamped; diff_cont's `use_stamped_vel` removed | Jazzy's diff_drive_controller only accepts TwistStamped, and twist_mux 4.5 defaults to stamped. Kilted makes stamped the Nav2 default too |
@@ -130,7 +131,7 @@ cd bonicbot-a2-ros
 sudo ./scripts/setup_udev.sh          # /dev/esp, /dev/lidar
 source /opt/ros/jazzy/setup.bash
 vcs import src/external < external.repos   # on the Mac, before syncing (or clone by hand, see the file)
-rosdep install --from-paths src/hardware src/nav src/external --ignore-src -r -y
+rosdep install --from-paths src/hardware src/nav src/external --ignore-src -r -y --skip-keys libcamera
 colcon build --packages-up-to bonicbot_a2_hardware bonicbot_a2_nav \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
@@ -143,36 +144,37 @@ the defaults. To test with the demo robot's real values, either copy its
 `robot_config.yaml` there, or `export WHEEL_RADIUS=… WHEEL_SEPARATION=… ENCODER_CPR=…`
 before starting.
 
-### Camera on the Pi 5 — the most likely snag
+### Camera on the Pi 5
 
-The Pi 5 has a different camera pipeline from the Pi 4 (rp1-cfe + PiSP instead of
-unicam + bcm2835-isp), so:
+Confirmed on the A2 Pi 5 on 2026-10-23: the kernel finds the ov5647 (`rp1-cfe … Using
+sensor ov5647 10-0036`), but `ros-jazzy-libcamera` reports "no cameras available".
+libcamera's rpi/pisp pipeline looks the CSI receiver's video nodes up by name. Raspberry
+Pi's kernel driver, which Ubuntu's raspi kernel uses, names them `rp1-cfe-fe_image0`;
+upstream libcamera (what ROS packages) expects mainline's `rp1-cfe-fe-image0`, so it
+never matches ("Unable to acquire a CFE instance" at debug level). Raspberry Pi's fork
+matches their kernel, and camera_ros's README gives building it in the workspace as the
+only way to use it on Ubuntu. Any CSI camera on a Pi 5 hits this; a USB camera does not.
 
-1. **The camera id differs.** The default in `camera.launch.py`
-   (`/base/soc/i2c0mux/i2c@1/ov5647@36`) is the Pi 4 path. Run the camera once, read
-   the id it reports ("no camera selected, using default: …"), and pass it:
-   `camera:=<id>`.
-2. **ROS's libcamera may not drive the Pi 5's ISP.** `ros-jazzy-libcamera` is the
-   plain upstream build, and camera_ros's README warns that it may lack full Raspberry
-   Pi support. If `camera_node` finds no camera, build the Raspberry Pi fork into the
-   workspace:
+So `libcamera` (Raspberry Pi fork, `v0.7.2+rpt20260817`) and `camera_ros` (`0.7.0`) are
+built from source, pinned in `external.repos`, and the apt `ros-jazzy-libcamera` and
+`ros-jazzy-camera-ros` are not installed. `camera.launch.py` picks the sensor's
+libcamera id for the board (Pi 4 or Pi 5); `camera:=<id>` still overrides it.
+
+On the Pi 5, after the step 2 workspace setup:
 
 ```bash
-sudo apt install -y python3-colcon-meson meson ninja-build pkg-config cmake \
-  libyaml-dev python3-yaml python3-ply python3-jinja2 libudev-dev libyuv-dev \
-  libboost-dev libgnutls28-dev openssl
-sudo apt remove -y ros-jazzy-libcamera ros-jazzy-camera-ros   # so the workspace copies are the only ones
-cd ~/bonic/bonicbot-a2-ros/src
-git clone https://github.com/raspberrypi/libcamera.git
-git clone https://github.com/christianrauch/camera_ros.git
-cd .. && rosdep install --from-paths src --ignore-src -r -y --skip-keys=libcamera
-colcon build --packages-up-to camera_ros bonicbot_a2_hardware bonicbot_a2_nav \
-  --meson-args -Dpipelines=rpi/pisp -Dipas=rpi/pisp
+sudo apt install -y python3-colcon-meson meson ninja-build pkg-config python3-jinja2 \
+  python3-ply python3-yaml libyaml-dev libssl-dev openssl libudev-dev nlohmann-json3-dev
+sudo apt remove -y ros-jazzy-camera-ros ros-jazzy-libcamera   # the workspace copies replace them
+colcon build --packages-select libcamera camera_ros bonicbot_a2_hardware \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release \
+  --meson-args -Dpipelines=rpi/vc4,rpi/pisp -Dipas=rpi/vc4,rpi/pisp \
+    -Dv4l2=disabled -Dgstreamer=disabled -Dpycamera=disabled -Drpi-awb-nn=disabled \
+    -Dcam=disabled -Dqcam=disabled -Dlc-compliance=disabled -Ddocumentation=disabled -Dtest=false
 ```
 
-The libcamera build takes a while on the Pi.
-
-Leave these two clones out of any commit. They exist only for the Pi 5 bench test.
+`external.repos` is imported on the Mac (with libcamera's `subprojects/libpisp` at
+v1.5.0) and rsynced, so nothing is cloned on the robot.
 
 ### Run
 

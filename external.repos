@@ -13,8 +13,33 @@
 # which also carries the newer-compiler build fix. NOT the 2.1.5 tag: that tag
 # is on Slamtec's ROS 1 branch. Drop this entry and go back to apt once a
 # Jazzy release with C1 support is published.
+#
+# libcamera + camera_ros: the Pi 5's camera path (rp1-cfe + PiSP) is driven by
+# libcamera's rpi/pisp pipeline, which looks the receiver's video nodes up by
+# name. Raspberry Pi's kernel (Ubuntu's raspi kernel included) names them
+# `rp1-cfe-fe_image0`; upstream libcamera, which ros-jazzy-libcamera is built
+# from, expects mainline's `rp1-cfe-fe-image0`, so it finds no camera at all
+# ("Unable to acquire a CFE instance", seen on the A2 Pi 5, 2026-10-23).
+# Raspberry Pi's fork matches their kernel. camera_ros's README gives building
+# that fork in the workspace as the only way to use it on Ubuntu. Pinned to
+# release v0.7.2+rpt20260817 (same 0.7.2 base as the ROS package), and
+# camera_ros to 0.7.0 (the version the apt package was). camera_ros is built
+# here too because the apt camera_ros depends on ros-jazzy-libcamera.
+# NOT rpt20261009: it deprecates libcamera::Span (as upstream's main branch
+# does), and camera_ros 0.7.0 builds with -Werror, so it fails to compile.
+# Move both together once a camera_ros release uses std::span.
+# libcamera fetches its libpisp subproject (subprojects/libpisp.wrap, v1.5.0)
+# at configure time unless subprojects/libpisp is already there.
 repositories:
   rplidar_ros:
     type: git
     url: https://github.com/Slamtec/rplidar_ros.git
     version: 24cc9b6dea97e045bda1408eaa867ce730fd3fc3
+  libcamera:
+    type: git
+    url: https://github.com/raspberrypi/libcamera.git
+    version: 6c1dd9d55573010f710c9e190a73e7e76f0d9432
+  camera_ros:
+    type: git
+    url: https://github.com/christianrauch/camera_ros.git
+    version: f4023dc09cfc5fd36fedbb3656ad3a98733e297a

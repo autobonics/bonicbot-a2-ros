@@ -39,13 +39,35 @@ from launch_ros.actions import Node
 #
 # Everything above is the Pi 4 (unicam + bcm2835-isp). A Pi 5 has a different
 # CSI receiver (rp1-cfe) and ISP (PiSP), so two things differ there:
-#   - libcamera needs the rpi/pisp pipeline. ROS's libcamera is the plain
-#     upstream build, and camera_ros's own README warns it may lack full
-#     Raspberry Pi support; if `camera_node` finds no camera, build the
-#     raspberrypi/libcamera fork in the workspace instead
-#     (JAZZY_MIGRATION.md, Pi 5).
-#   - the sensor's libcamera id is a different device-tree path, so the
-#     `camera` default below is wrong there; pass camera:=<id>.
+#   - libcamera needs the rpi/pisp pipeline, and only Raspberry Pi's libcamera
+#     fork finds the Pi 5's camera under Raspberry Pi's kernel. It is built in
+#     the workspace with camera_ros (external.repos), not installed from apt.
+#   - the sensor's libcamera id is a different device-tree path. _sensor_id()
+#     picks the right one for the board.
+
+
+# The ov5647's libcamera id per board: its device-tree path, which is stable
+# for a board + sensor across boots (verified on Pi 4 and Pi 5 hardware).
+_SENSOR_IDS = {
+    'brcm,bcm2712': '/base/axi/pcie@120000/rp1/i2c@88000/ov5647@36',   # Pi 5
+    'brcm,bcm2711': '/base/soc/i2c0mux/i2c@1/ov5647@36',               # Pi 4
+}
+
+
+def _sensor_id(context):
+    """camera:=<id> if given, else this board's ov5647 path."""
+    given = LaunchConfiguration('camera').perform(context)
+    if given:
+        return given
+    try:
+        with open('/proc/device-tree/compatible', 'rb') as f:
+            compatible = f.read().decode(errors='replace').split('\0')
+    except OSError:
+        compatible = []
+    for soc, sensor in _SENSOR_IDS.items():
+        if soc in compatible:
+            return sensor
+    return _SENSOR_IDS['brcm,bcm2711']
 
 
 def _camera_node(context, *args, **kwargs):
@@ -83,7 +105,7 @@ def _camera_node(context, *args, **kwargs):
         # The CSI sensor's libcamera id is its device-tree path, which is
         # stable for this board + sensor across boots and reboots, unlike an
         # index. Overridable for a variant that wires the sensor differently.
-        'camera': LaunchConfiguration('camera'),
+        'camera': _sensor_id(context),
         'width': 640,
         'height': 480,
         # libcamera's format names are BYTE-ORDER INVERTED relative to ROS:
@@ -141,9 +163,10 @@ def _camera_node(context, *args, **kwargs):
 def generate_launch_description():
 
     camera_arg = DeclareLaunchArgument(
-        'camera', default_value='/base/soc/i2c0mux/i2c@1/ov5647@36',
-        description="libcamera id of the CSI sensor. Pinned rather than left "
-                    "to enumeration order, which a USB camera changes — see "
+        'camera', default_value='',
+        description="libcamera id of the CSI sensor. Empty = this board's "
+                    "ov5647 (Pi 4 or Pi 5). Pinned rather than left to "
+                    "enumeration order, which a USB camera changes — see "
                     "the note in _camera_node()",
     )
     use_sim_time_arg = DeclareLaunchArgument(
