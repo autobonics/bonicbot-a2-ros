@@ -32,6 +32,14 @@ def generate_launch_description():
         executable='rplidar_composition',
         name='rplidar',
         output='screen',
+        # The driver exits on a startup timeout (SL_RESULT_OPERATION_TIMEOUT)
+        # and nothing else brings it back, so the whole session runs without
+        # /scan: AMCL never localizes and Nav2 cannot activate. Seen on the A2
+        # Pi 5 (2026-10-24) when the gamepad receiver, on the same USB
+        # controller, re-enumerated (Sony -> Android mode, which it does every
+        # time joy_node opens it) in the same second the lidar was opened.
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[{
             'serial_port': LaunchConfiguration('serial_port'),
             'serial_baudrate': 460800,
