@@ -60,7 +60,24 @@ The unused `bonicbot_a2_sim/config/nav2_params_sim.yaml` was deleted: nothing lo
   zeros to the EKF anyway.
 - **Topic names, launch file names and arguments, the Nav2 action names**, and the
   slam_toolbox `paused_new_measurements` parameter.
-- **Tuning:** all Nav2, EKF and SLAM values are unchanged.
+- **Tuning:** all Nav2, EKF and SLAM values are unchanged (the fleet's Humble values).
+
+### Localization: tried on the Pi 5 and reverted (robot 038, 2026-10-13 to 10-23)
+
+Heading in the app over-rotated ~5% per turn (wheel slip), so the EKF was switched to
+take heading from the gyro only (wheels as velocities, `odom0` yaw off). Spin tests
+looked right (gyro within 1% over 720°), but **AMCL got much worse**: it alternated
+between poses ~20° apart and corrected by up to 0.58 m / 29°. Raising AMCL particles to
+500–2000 and lowering `alpha1`/`alpha2` to 0.05 reduced AMCL's *reported* uncertainty
+but not the real errors. Going back to the fleet's `ekf.yaml` and AMCL values made
+localization much better at once. All three changes are reverted.
+
+Lessons: judge localization by where the robot really is (scan-on-map alignment, or the
+operator's eye), never by AMCL's own covariance, which lower noise settings simply
+shrink; and a configuration proven on the Humble fleet beats a change that only passes
+an odometry test. The plugin's gyro zero-offset tracking (subtracting the bias learned
+while the wheels are stopped) is kept: it only removes bias from `/imu/data`.
+`wheel_separation` stays the measured 0.319 m.
 
 ---
 

@@ -20,22 +20,14 @@ ekf_filter_node:
     # ── Wheel odometry ─────────────────────────────────────────────────────
     odom0: /diff_cont/odom
 
-    # Velocities only, robot_localization's standard setup for wheels + IMU:
-    # the EKF integrates position itself, with the fused heading. vy is the
-    # diff-drive constraint (always 0). vyaw is a backup: the IMU's yaw-rate
-    # variance is 0.0001 against the wheels' 0.02, so the gyro carries ~200x
-    # the weight and the wheels only matter if the IMU drops out. Fusing the
-    # wheels' absolute yaw made the heading the wheel heading, slip included.
-    # See docs/CLAUDE.md "Heading: gyro, not wheels".
-    #
     # [x,    y,     z,
-    #  roll,  pitch, yaw,
+    #  roll,  pitch, yaw,    ← TRUE: odom anchors the heading (prevents sliding)
     #  vx,   vy,    vz,
     #  vroll, vpitch, vyaw,
     #  ax,   ay,    az]
-    odom0_config: [false, false, false,
-                   false, false, false,
-                   true,  true,  false,
+    odom0_config: [true,  true,  false,
+                   false, false, true,
+                   true,  false, false,
                    false, false, true,
                    false, false, false]
 
@@ -45,9 +37,10 @@ ekf_filter_node:
     odom0_relative: false
 
     # ── IMU ────────────────────────────────────────────────────────────────
-    # Only gz (yaw rate): the heading is integrated from it. ax stays out — it
-    # caused position drift on a flat floor. The hardware interface subtracts
-    # the gyro's zero offset, learned while the robot stands still.
+    # Only gz (yaw rate) for gentle smoothing on top of odom heading.
+    # ax removed — caused position drift on flat floor.
+    # imu0_covariance is set high (0.1) in esp_hardware_interface.cpp angular_velocity_covariance
+    # so odom yaw still dominates; IMU just smooths sudden jitter.
     imu0: /imu/data
 
     imu0_config: [false, false, false,
