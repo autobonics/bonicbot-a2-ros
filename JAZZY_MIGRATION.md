@@ -44,7 +44,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | Nav2 RPP | `use_interpolation` removed | The parameter no longer exists (RPP always interpolates) |
 | Nav2 `*_rclcpp_node` sections | removed | Those helper nodes no longer exist |
 | Gazebo | `IGN_GAZEBO_RESOURCE_PATH` dropped | Harmonic reads `GZ_SIM_RESOURCE_PATH` only. Worlds and sensors already used Harmonic names |
-| Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml` | Jazzy deprecates the old variable |
+| Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml`, **plus** `config/fastdds_localhost.xml` via `FASTRTPS_DEFAULT_PROFILES_FILE` | Jazzy deprecates the old variable, and its localhost mode no longer pins the transport to 127.0.0.1, so a Wi-Fi change stranded running nodes (see "ROS traffic pinned to 127.0.0.1") |
 | `stop_session.sh` | Also sweeps `camera_ros/camera_node` and `component_container` | Both run from `/opt/ros`, so no other pattern caught them; a surviving camera node holds the sensor |
 
 The unused `bonicbot_a2_sim/config/nav2_params_sim.yaml` was deleted: nothing loads it, and navigation uses `nav2_params.yaml` in simulation too.
@@ -144,6 +144,46 @@ the defaults. To test with the demo robot's real values, either copy its
 `robot_config.yaml` there, or `export WHEEL_RADIUS=… WHEEL_SEPARATION=… ENCODER_CPR=…`
 before starting.
 
+### ROS traffic pinned to 127.0.0.1 (`config/fastdds_localhost.xml`)
+
+Found on the A2 Pi 5, 2026-10-23: after the robot changed Wi-Fi (hotspot → home router,
+new IP), every ROS node started before the change became unreachable from anything
+started after it. robot_app lost Nav2 ("nav2_not_responding"), and a fresh shell saw only
+robot_app.
+
+**Cause.** Humble's `ROS_LOCALHOST_ONLY=1` made rmw_fastrtps replace Fast DDS's
+transports with UDP restricted to `127.0.0.1` plus shared memory (rmw_fastrtps
+`participant.cpp`, humble). Jazzy's `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` only turns
+off multicast and adds `127.0.0.1` as a discovery peer (same file, jazzy); transports
+stay default, so each node advertises every address the machine has **at startup**.
+When the Wi-Fi IP goes away, the addresses those nodes advertise are dead.
+
+**Fix.** `config/fastdds_localhost.xml` restores Humble's behaviour as a Fast DDS
+profile: a default participant profile with built-in transports off, UDPv4 whitelisted
+to `127.0.0.1`, and SHM. It is loaded through `FASTRTPS_DEFAULT_PROFILES_FILE`,
+alongside `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`:
+
+- the session scripts export it;
+- `Dockerfile.ros` copies it to `/ws/config/` and sets both variables as `ENV`, so the
+  stack, robot_app's image (built on this one) and `docker exec … ros2` inherit them;
+- robot_app's `install-service.sh` writes it into the bare-metal env file, pointing at
+  `$ROS_WORKSPACE/config/fastdds_localhost.xml`.
+
+**Every ROS process must use it, interactive shells included**
+(`echo 'export FASTRTPS_DEFAULT_PROFILES_FILE=<workspace>/config/fastdds_localhost.xml' >> ~/.bashrc`).
+A process without it, next to processes with it, saw only some topics, and once failed to
+open its shared-memory port.
+
+**Verified on the A2 Pi 5** with the full stack and robot_app running, switching
+SNEHA_4G → phone hotspot → SNEHA_4G: 40 nodes visible from a fresh shell on each
+network, robot_app healthy throughout, `/scan` 10 Hz and the camera 6 Hz before and
+after. No RTPS packets on `wlan0`; every ROS listening port is on `127.0.0.1`. The same
+switch with Jazzy's defaults lost every node started before it.
+
+Alternatives not taken: a discovery server or static peers solve multi-machine discovery,
+not this; Cyclone DDS or Zenoh would replace Jazzy's default middleware and still need
+their own localhost configuration.
+
 ### Camera on the Pi 5
 
 Confirmed on the A2 Pi 5 on 2026-10-23: the kernel finds the ov5647 (`rp1-cfe … Using
@@ -214,6 +254,7 @@ For mapping and navigation without robot_app:
 ```bash
 source /opt/ros/jazzy/setup.bash && source install/setup.bash
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/config/fastdds_localhost.xml
 ros2 launch bonicbot_a2_nav mapping.launch.py
 ros2 launch bonicbot_a2_nav navigation.launch.py map_name:=<map>.yaml
 ```
