@@ -176,6 +176,32 @@ colcon build --packages-select libcamera camera_ros bonicbot_a2_hardware \
 `external.repos` is imported on the Mac (with libcamera's `subprojects/libpisp` at
 v1.5.0) and rsynced, so nothing is cloned on the robot.
 
+**When to go back to apt.** The custom build is temporary. Recheck when a new
+`ros-jazzy-libcamera` or Ubuntu raspi kernel arrives: install `ros-jazzy-camera-ros` on a
+Pi 5 and run `ros2 run camera_ros camera_node`. If it logs "Registered camera … rpi/pisp"
+rather than "no cameras available", remove the libcamera and camera_ros entries from
+`external.repos`, put `ros-jazzy-camera-ros` back in `Dockerfile.ros`, and drop the
+meson packages and `--meson-args` there. The rotation line in `config.txt` stays either
+way.
+
+**Upside-down mounting on the Pi 5.** The head camera is mounted inverted, and the fix
+is still the device tree, as on the Pi 4, but the line differs. On the A2 the ribbon is
+in the Pi 5's **CAM0** connector, and the overlay defaults to CAM1, so `cam0` is
+required. `camera_auto_detect` must be off, or it loads its own overlay without the
+rotation. In `/boot/firmware/config.txt`:
+
+```
+camera_auto_detect=0
+dtoverlay=ov5647,rotation=180,cam0
+```
+
+Without `cam0` the sensor is looked for on the other port and its probe fails
+(`ov5647 11-0036: ... i2c read error ... probe failed with error -121`). Check with
+`v4l2-ctl -d /dev/v4l-subdevN -l | grep camera_sensor_rotation` (should read 180).
+bonicOS-image writes the Pi 4 line (`dtoverlay=ov5647,rotation=180`) for series A; a
+Pi 5 image needs the line above. Verified on the A2 Pi 5 on 2026-10-23: upright, 640x480
+at 6.0 Hz.
+
 ### Run
 
 ```bash

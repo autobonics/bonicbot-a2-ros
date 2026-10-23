@@ -147,6 +147,8 @@ def _camera_node(context, *args, **kwargs):
     # nothing; it was removed on 2026-09-11. An inverted camera is handled at
     # imaging time — bonicOS-image writes `dtoverlay=ov5647,rotation=180` into
     # /boot/firmware/config.txt for series A, which is where libcamera reads it.
+    # A Pi 5 needs `dtoverlay=ov5647,rotation=180,cam0` with
+    # camera_auto_detect=0: the A2's ribbon is in CAM0 (JAZZY_MIGRATION.md).
 
     # No namespace: camera_ros publishes PRIVATE topics (`~/image_raw`), where
     # v4l2_camera published relative ones. Node name alone therefore yields

@@ -28,6 +28,12 @@
 # NOT rpt20261009: it deprecates libcamera::Span (as upstream's main branch
 # does), and camera_ros 0.7.0 builds with -Werror, so it fails to compile.
 # Move both together once a camera_ros release uses std::span.
+# Drop both entries and go back to apt (ros-jazzy-camera-ros) once the apt
+# libcamera finds the Pi 5 camera: with the apt packages installed, run
+# `ros2 run camera_ros camera_node` on a Pi 5 and check for "Registered camera
+# ... rpi/pisp" instead of "no cameras available". That happens when either
+# upstream libcamera accepts Raspberry Pi's node names, or the Pi's kernel
+# switches to mainline's.
 # libcamera fetches its libpisp subproject (subprojects/libpisp.wrap, v1.5.0)
 # at configure time unless subprojects/libpisp is already there.
 repositories:
