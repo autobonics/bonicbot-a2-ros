@@ -56,6 +56,9 @@ source "$A2_ROS/install/setup.bash"
 # `ros2` CLI commands from — needs a localhost-only setting too, or it lands on
 # a different discovery scope and sees nothing.
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+# ...and the transport pinned to 127.0.0.1, as Humble's setting also did, so a
+# Wi-Fi change cannot strand running nodes (config/fastdds_localhost.xml).
+export FASTRTPS_DEFAULT_PROFILES_FILE="$A2_ROS/config/fastdds_localhost.xml"
 
 # nav's map loading (BONICBOT_MAPS_DIR) and robot_app's save/list/load
 # (MAPS_DIR) must agree on one directory.

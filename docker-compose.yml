@@ -65,7 +65,7 @@ services:
       - ROBOT_SERIES=A
       - ROS_DISTRO=jazzy
       - ROBOT_ID=${ROBOT_ID}
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
     secrets:
       - firebase_credentials
       - livekit_api_key

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ROS 2 traffic stays on this machine: UDP on 127.0.0.1 only, plus shared
+  memory. Loaded by every ROS process on the robot through
+  FASTRTPS_DEFAULT_PROFILES_FILE (session scripts, the image's ENV, and
+  robot_app's env file), alongside ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST.
+
+  This is what Humble's ROS_LOCALHOST_ONLY=1 did inside rmw_fastrtps. Jazzy's
+  LOCALHOST range does not: nodes still advertise every address the machine
+  has at startup, so after a Wi-Fi change (new IP) nodes started before it
+  can no longer be reached by nodes started after it. See JAZZY_MIGRATION.md.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>udp_localhost</transport_id>
+      <type>UDPv4</type>
+      <interfaceWhiteList>
+        <address>127.0.0.1</address>
+      </interfaceWhiteList>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>shm</transport_id>
+      <type>SHM</type>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="localhost_only" is_default_profile="true">
+    <rtps>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <userTransports>
+        <transport_id>udp_localhost</transport_id>
+        <transport_id>shm</transport_id>
+      </userTransports>
+    </rtps>
+  </participant>
+</profiles>
