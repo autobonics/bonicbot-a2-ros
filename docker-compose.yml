@@ -24,9 +24,10 @@ services:
     volumes:
       - /home/pi/maps:/maps
     environment:
-      # ROS2 traffic must never leak onto school/lab WiFi. Jazzy's replacement
-      # for ROS_LOCALHOST_ONLY=1, which it still honours but deprecates.
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+      # ROS traffic stays on this machine: the image sets
+      # ROS_AUTOMATIC_DISCOVERY_RANGE and FASTRTPS_DEFAULT_PROFILES_FILE
+      # (Dockerfile.ros). Do not set the range here; LOCALHOST would override
+      # the image and mix transports.
       - ROS_DOMAIN_ID=0
       - BONICBOT_MAPS_DIR=/maps
     command: >
@@ -46,7 +47,6 @@ services:
     volumes:
       - /home/pi/maps:/maps
     environment:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - ROS_DOMAIN_ID=0
       - BONICBOT_MAPS_DIR=/maps
     command: >
@@ -65,7 +65,6 @@ services:
       - ROBOT_SERIES=A
       - ROS_DISTRO=jazzy
       - ROBOT_ID=${ROBOT_ID}
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
     secrets:
       - firebase_credentials
       - livekit_api_key

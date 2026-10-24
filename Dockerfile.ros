@@ -124,12 +124,13 @@ RUN printf '%s\ncommit=%s\nbuilt=%s\ndistro=%s\n' \
       "${VERSION}" "${GIT_COMMIT}" "${BUILD_DATE}" "${ROS_DISTRO:-jazzy}" \
       > /ws/version.txt
 
-# ROS traffic stays on this machine: the localhost discovery range plus a
-# transport pinned to 127.0.0.1 (config/fastdds_localhost.xml). In the image,
-# not the compose file, so every process started from it — the stack,
-# robot_app's image built on top, `docker exec ... ros2` — inherits it.
+# ROS traffic stays on this machine: Fast DDS pinned to 127.0.0.1 by
+# config/fastdds_localhost.xml, with SYSTEM_DEFAULT so ROS adds no transports
+# of its own (see the profile). In the image, not the compose file, so every
+# process started from it — the stack, robot_app's image built on top,
+# `docker exec ... ros2` — inherits it.
 COPY config/fastdds_localhost.xml /ws/config/fastdds_localhost.xml
-ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+ENV ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT \
     FASTRTPS_DEFAULT_PROFILES_FILE=/ws/config/fastdds_localhost.xml
 
 # Maps live on a volume so they survive image rebuilds.

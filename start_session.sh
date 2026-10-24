@@ -51,13 +51,13 @@ fi
 
 source /opt/ros/jazzy/setup.bash
 source "$A2_ROS/install/setup.bash"
-# Jazzy's form of ROS_LOCALHOST_ONLY=1, which it still honours but deprecates.
-# Every process that must see this stack — robot_app, and the shell you run
-# `ros2` CLI commands from — needs a localhost-only setting too, or it lands on
-# a different discovery scope and sees nothing.
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-# ...and the transport pinned to 127.0.0.1, as Humble's setting also did, so a
-# Wi-Fi change cannot strand running nodes (config/fastdds_localhost.xml).
+# ROS traffic stays on this machine: Fast DDS pinned to 127.0.0.1 by
+# config/fastdds_localhost.xml (what Humble's ROS_LOCALHOST_ONLY=1 did), with
+# SYSTEM_DEFAULT so ROS adds no transports of its own on top. Every process
+# that must see this stack — robot_app, and the shell you run `ros2` CLI
+# commands from — needs both, or it lands on a different setup and sees a
+# partial graph. Not Jazzy's LOCALHOST range: see the profile.
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT
 export FASTRTPS_DEFAULT_PROFILES_FILE="$A2_ROS/config/fastdds_localhost.xml"
 
 # nav's map loading (BONICBOT_MAPS_DIR) and robot_app's save/list/load

@@ -1,14 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ROS 2 traffic stays on this machine: UDP on 127.0.0.1 only, plus shared
-  memory. Loaded by every ROS process on the robot through
-  FASTRTPS_DEFAULT_PROFILES_FILE (session scripts, the image's ENV, and
-  robot_app's env file), alongside ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST.
+  ROS 2 on this robot stays on this machine. This is the complete Fast DDS
+  setup, used with ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT so ROS adds
+  nothing of its own: UDP pinned to 127.0.0.1 plus shared memory, Fast DDS's
+  default discovery on that interface. It is exactly what Humble's
+  ROS_LOCALHOST_ONLY=1 built inside rmw_fastrtps (participant.cpp, humble).
+  Loaded through FASTRTPS_DEFAULT_PROFILES_FILE by every ROS process: session
+  scripts, the image's ENV, and robot_app's env file.
 
-  This is what Humble's ROS_LOCALHOST_ONLY=1 did inside rmw_fastrtps. Jazzy's
-  LOCALHOST range does not: nodes still advertise every address the machine
-  has at startup, so after a Wi-Fi change (new IP) nodes started before it
-  can no longer be reached by nodes started after it. See JAZZY_MIGRATION.md.
+  Why not Jazzy's ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST:
+  - It does not pin the transport: nodes advertise every address the machine
+    has at startup, so after a Wi-Fi/IP change nodes started before it can
+    no longer be reached (seen on the A2 Pi 5, 2026-10-23).
+  - It discovers by unicast to a range of local ports. Measured on the A2 Pi 5
+    (2026-10-24), Nav2-style bring-ups with 20 other ROS processes running:
+    median 14.3 s with LOCALHOST, 8.1 s with this profile.
+  - It is applied after this file is loaded and adds its own SHM and UDP
+    transports, so combining the two gives a mixed setup: the only one that
+    lost a service reply in that test (1 in 50), the failure that left Nav2
+    half-started on the robot.
+  See JAZZY_MIGRATION.md, "ROS traffic pinned to 127.0.0.1".
 -->
 <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
   <transport_descriptors>

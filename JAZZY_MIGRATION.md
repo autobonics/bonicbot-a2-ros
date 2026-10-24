@@ -33,7 +33,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | ESP plugin, wheel resend cache | Made a member and reset on activate and on reconnect (it was a function `static`) | A rebooted ESP could otherwise miss an unchanged wheel command after a reconnect |
 | controller_manager URDF | No longer passed as a parameter | Jazzy's controller_manager reads the URDF from the `/robot_description` **topic** (robot_state_publisher already publishes it) |
 | **Spawner** | **One** spawner for all seven controllers, with `--param-file controllers.yaml` (plus the calibration overrides file, after it) | One process and one controller_manager handshake instead of seven. `--param-file` is the documented Jazzy way to give controllers their parameters. The spawner forwards a file only to controllers that have a section in it, so the overrides reach diff_cont alone |
-| **Nav2 processes** | One process per Nav2 server (`use_composition:=false`, the default here), as on Humble. Composition (`use_composition:=true`, one `component_container_isolated`) is still supported | Composition is nav2_bringup's Jazzy default and was used at first, but on the A2 Pi 5 a `load_node` service reply was dropped during a mapping → navigation switch ("failed to send response … client will not receive response", an open rclcpp/rmw race: [rclcpp #2760](https://github.com/ros2/rclcpp/issues/2760), [rmw_fastrtps #749](https://github.com/ros2/rmw_fastrtps/issues/749)). The launch then waits forever, so AMCL, the planner and the navigator never loaded. Separate processes need no service calls to start; the Pi 5 has the memory and CPU for them |
+| **Nav2 composition** | All Nav2 servers run as components in one `component_container_isolated` process (`nav2_container`). `use_composition:=false` gives one process per server | nav2_bringup's default on Jazzy: one process and one DDS participant instead of ten. One process per server was tried on the Pi 5 (2026-10-24) to avoid a dropped `load_node` reply; the same race then hit the lifecycle manager's `change_state` instead. The fix was the DDS setup ("ROS traffic pinned to 127.0.0.1"), and fewer participants helps it |
 | Nav2 recoveries | behavior_server's `cmd_vel` → `cmd_vel_nav`, so spin/backup/drive_on_heading pass through the velocity smoother | Same as nav2_bringup. Recoveries are now acceleration-limited like path following |
 | Sim gripper mimic joints | `finger2` joints: mimic params and command interface removed from the sim `<ros2_control>` tag | Jazzy reads mimic from the URDF `<mimic>` tag (already in `gripper.xacro`) and **refuses to start the whole system** if a mimic joint has a command interface |
 | **slam_toolbox** | Launched as a `LifecycleNode`, then configured and activated | On Jazzy it is a lifecycle node. As a plain `Node` it stays unconfigured: the process runs, but there is no `/map` and no `map->odom` |
@@ -44,7 +44,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | Nav2 RPP | `use_interpolation` removed | The parameter no longer exists (RPP always interpolates) |
 | Nav2 `*_rclcpp_node` sections | removed | Those helper nodes no longer exist |
 | Gazebo | `IGN_GAZEBO_RESOURCE_PATH` dropped | Harmonic reads `GZ_SIM_RESOURCE_PATH` only. Worlds and sensors already used Harmonic names |
-| Discovery | `ROS_LOCALHOST_ONLY=1` → `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in the session scripts and the ROS services in `docker-compose.yml`, **plus** `config/fastdds_localhost.xml` via `FASTRTPS_DEFAULT_PROFILES_FILE` | Jazzy deprecates the old variable, and its localhost mode no longer pins the transport to 127.0.0.1, so a Wi-Fi change stranded running nodes (see "ROS traffic pinned to 127.0.0.1") |
+| Discovery | `ROS_LOCALHOST_ONLY=1` → `config/fastdds_localhost.xml` (UDP pinned to 127.0.0.1 + shared memory, as Humble's setting built it) loaded through `FASTRTPS_DEFAULT_PROFILES_FILE`, with `ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT`, in the session scripts and the image | Jazzy's `LOCALHOST` range does not pin the transport (a Wi-Fi change strands running nodes) and discovers more slowly in a busy graph. See "ROS traffic pinned to 127.0.0.1" |
 | `stop_session.sh` | Also sweeps `camera_ros/camera_node` and `component_container` | Both run from `/opt/ros`, so no other pattern caught them; a surviving camera node holds the sensor |
 
 The unused `bonicbot_a2_sim/config/nav2_params_sim.yaml` was deleted: nothing loads it, and navigation uses `nav2_params.yaml` in simulation too.
@@ -163,43 +163,57 @@ before starting.
 
 ### ROS traffic pinned to 127.0.0.1 (`config/fastdds_localhost.xml`)
 
-Found on the A2 Pi 5, 2026-10-23: after the robot changed Wi-Fi (hotspot → home router,
-new IP), every ROS node started before the change became unreachable from anything
-started after it. robot_app lost Nav2 ("nav2_not_responding"), and a fresh shell saw only
-robot_app.
+**Setup.** `config/fastdds_localhost.xml` is the complete Fast DDS configuration: built-in
+transports off, UDPv4 whitelisted to `127.0.0.1`, shared memory, default discovery. That
+is what Humble's `ROS_LOCALHOST_ONLY=1` built inside rmw_fastrtps (`participant.cpp`,
+humble). Every ROS process loads it through `FASTRTPS_DEFAULT_PROFILES_FILE`, with
+`ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT` so ROS adds nothing of its own:
 
-**Cause.** Humble's `ROS_LOCALHOST_ONLY=1` made rmw_fastrtps replace Fast DDS's
-transports with UDP restricted to `127.0.0.1` plus shared memory (rmw_fastrtps
-`participant.cpp`, humble). Jazzy's `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` only turns
-off multicast and adds `127.0.0.1` as a discovery peer (same file, jazzy); transports
-stay default, so each node advertises every address the machine has **at startup**.
-When the Wi-Fi IP goes away, the addresses those nodes advertise are dead.
+- the session scripts export both;
+- `Dockerfile.ros` copies the profile to `/ws/config/` and sets both as `ENV`, which the
+  stack, robot_app's image (built on this one) and `docker exec … ros2` inherit. The
+  compose files must not set the range: it would override the image;
+- robot_app's `install-service.sh` writes both into the bare-metal env file. Without the
+  file it falls back to `LOCALHOST` and warns, because `SYSTEM_DEFAULT` without the
+  profile would discover across the subnet;
+- interactive shells need both too (`~/.bashrc`). A shell with a different setup sees a
+  partial graph.
 
-**Fix.** `config/fastdds_localhost.xml` restores Humble's behaviour as a Fast DDS
-profile: a default participant profile with built-in transports off, UDPv4 whitelisted
-to `127.0.0.1`, and SHM. It is loaded through `FASTRTPS_DEFAULT_PROFILES_FILE`,
-alongside `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`:
+**Why not Jazzy's `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`** (all found on the A2 Pi 5):
 
-- the session scripts export it;
-- `Dockerfile.ros` copies it to `/ws/config/` and sets both variables as `ENV`, so the
-  stack, robot_app's image (built on this one) and `docker exec … ros2` inherit them;
-- robot_app's `install-service.sh` writes it into the bare-metal env file, pointing at
-  `$ROS_WORKSPACE/config/fastdds_localhost.xml`.
+1. *Wi-Fi changes* (2026-10-23). `LOCALHOST` only turns off multicast and adds
+   `127.0.0.1` as a discovery peer; transports stay default, so each node advertises the
+   addresses the machine had **at startup**. After the robot moved from a phone hotspot to
+   the home router (new IP), nodes started before the change could not be reached by
+   nodes started after it: robot_app lost Nav2. Fast DDS never updates a participant's
+   locators ([Clearpath](https://docs.clearpathrobotics.com/docs/ros2humble/ros/networking/ros2_communication/),
+   [Fast-DDS #6055](https://github.com/eProsima/Fast-DDS/issues/6055)). With the profile,
+   the same switch (full stack and robot_app running) kept all 40 nodes visible.
+2. *A layered profile is worse* (2026-10-24). rmw_fastrtps (8.4.4) applies `LOCALHOST`
+   **after** loading the XML and appends its own SHM and UDP transports. A profile used
+   with `LOCALHOST` therefore gives a mixed setup. On the robot that coincided with a
+   dropped `load_node` reply (Nav2 half-loaded), a dropped `change_state` reply (Nav2's
+   lifecycle manager waits forever on it), and robot_app hanging inside Fast DDS.
+3. *Discovery in a busy graph* (2026-10-24 benchmark). A Nav2-style bring-up (map_server,
+   AMCL and four other servers plus a lifecycle manager, all new processes) was repeated
+   50 times per setup, alone and with 20 other ROS processes running:
 
-**Every ROS process must use it, interactive shells included**
-(`echo 'export FASTRTPS_DEFAULT_PROFILES_FILE=<workspace>/config/fastdds_localhost.xml' >> ~/.bashrc`).
-A process without it, next to processes with it, saw only some topics, and once failed to
-open its shared-memory port.
+| Setup | Alone | With 20 other processes |
+|---|---|---|
+| Jazzy `LOCALHOST` | 50/50, 2.6 s | 50/50, median 14.3 s |
+| `LOCALHOST` + profile (mixed) | 50/50, 2.6 s | **49/50: one dropped reply, stuck**; median 18.3 s |
+| **This profile + `SYSTEM_DEFAULT`** | 50/50, 2.6 s | **50/50, median 8.1 s** |
+| Same without shared memory | 50/50, 2.6 s | 50/50, median 14.7 s |
 
-**Verified on the A2 Pi 5** with the full stack and robot_app running, switching
-SNEHA_4G → phone hotspot → SNEHA_4G: 40 nodes visible from a fresh shell on each
-network, robot_app healthy throughout, `/scan` 10 Hz and the camera 6 Hz before and
-after. No RTPS packets on `wlan0`; every ROS listening port is on `127.0.0.1`. The same
-switch with Jazzy's defaults lost every node started before it.
+The dropped reply is the known ROS 2 service race ([rclcpp #2760](https://github.com/ros2/rclcpp/issues/2760),
+[rmw_fastrtps #749](https://github.com/ros2/rmw_fastrtps/issues/749)): the server sends
+before it has discovered the caller's reply reader. The code is identical in Humble and
+Jazzy; slower discovery widens the window. Humble's setup discovers fastest here, which
+matches the Humble fleet rarely seeing it.
 
-Alternatives not taken: a discovery server or static peers solve multi-machine discovery,
-not this; Cyclone DDS or Zenoh would replace Jazzy's default middleware and still need
-their own localhost configuration.
+Shared memory stays (as on Humble). robot_app's teardown no longer SIGKILLs nodes that
+are still shutting down after SIGINT, which is what left a shared-memory lock held when
+robot_app hung.
 
 ### Camera on the Pi 5
 

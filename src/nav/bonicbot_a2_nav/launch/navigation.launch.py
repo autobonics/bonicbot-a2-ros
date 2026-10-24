@@ -11,14 +11,13 @@ and the robot's pose flips between their estimates.
 
 Map storage follows BONICBOT_MAPS_DIR (default /maps, the Docker volume mount).
 
-One process per Nav2 server by default (use_composition:=false), as on
-Humble. Composed (use_composition:=true: every server a component of ONE
-process, nav2_container, nav2_bringup's Jazzy default) is supported but not
-used: the launch loads each component through a load_node service call, and on
-the A2 Pi 5 a reply was dropped ("failed to send response to
-/nav2_container/_container/load_node (timeout)", a known open race in
-rclcpp/rmw), which stalls the launch with AMCL and the planner never loaded.
-See JAZZY_MIGRATION.md.
+Composed by default (use_composition:=true), as nav2_bringup does on Jazzy:
+every Nav2 server is a component in ONE process, nav2_container. On the Pi
+that is one process and one DDS participant instead of ten, so far less memory,
+discovery traffic and context switching. use_composition:=false runs each
+server as its own process again, which is easier to debug or profile one node.
+Both start through service calls (load_node, or the lifecycle manager's
+change_state), so both depend on the DDS setup in config/fastdds_localhost.xml.
 """
 
 import os
@@ -56,7 +55,7 @@ def generate_launch_description():
             'autostart', default_value='true',
             description='Auto-transition the Nav2 lifecycle nodes'),
         DeclareLaunchArgument(
-            'use_composition', default_value='false',
+            'use_composition', default_value='true',
             description='Run the Nav2 servers as components of one container '
                         'process (false: one process per server)'),
         DeclareLaunchArgument(
