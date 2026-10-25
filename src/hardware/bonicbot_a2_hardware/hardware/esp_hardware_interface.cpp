@@ -1152,7 +1152,12 @@ void EspHardwareInterface::processImu(const uint8_t * payload, uint16_t length)
   }
 
   sensor_msgs::msg::Imu msg;
-  msg.header.stamp = get_clock()->now();
+  // ROS time from the component's node, NOT get_clock(): in ros2_control
+  // 4.48 that is the controller manager's steady (monotonic) trigger clock,
+  // so stamps came out ~1000 s instead of wall time and the EKF integrated
+  // across a 57-year gap (S1, 2026-10-25: /odometry/filtered x = -186847).
+  // get_node()->now() is ROS time and follows use_sim_time.
+  msg.header.stamp = get_node()->now();
   msg.header.frame_id = imu_frame_id_;
 
   msg.linear_acceleration.x = imu_ax_;
@@ -1228,7 +1233,7 @@ void EspHardwareInterface::processBattery(const uint8_t * payload, uint16_t leng
   std::memcpy(&soc_percent, &payload[8], sizeof(float));
 
   sensor_msgs::msg::BatteryState msg;
-  msg.header.stamp = get_clock()->now();
+  msg.header.stamp = get_node()->now();   // ROS time — see processImu
   msg.voltage = voltage;
   msg.current = current;
   msg.percentage = soc_percent / 100.0f;    // BatteryState wants 0..1
