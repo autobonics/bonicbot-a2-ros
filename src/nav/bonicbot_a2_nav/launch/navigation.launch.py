@@ -39,6 +39,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam = LaunchConfiguration('slam')
     autostart = LaunchConfiguration('autostart')
+    navigation_autostart = LaunchConfiguration('navigation_autostart')
     params_file = LaunchConfiguration('params_file')
     use_composition = LaunchConfiguration('use_composition')
 
@@ -54,6 +55,18 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'autostart', default_value='true',
             description='Auto-transition the Nav2 lifecycle nodes'),
+        # Localization (map_server + AMCL) always follows `autostart`. The
+        # navigation servers' costmaps need map -> base_link to activate, which
+        # exists only once AMCL has a pose, and on Jazzy they wait for it at
+        # most initial_transform_timeout (60 s) before the whole bringup
+        # aborts. robot_app therefore launches with navigation_autostart:=false
+        # and starts them itself (lifecycle_manager_navigation/manage_nodes,
+        # STARTUP) the moment the robot is localized. Standalone use keeps the
+        # default.
+        DeclareLaunchArgument(
+            'navigation_autostart', default_value=autostart,
+            description='Auto-start the navigation servers (false: wait for '
+                        'lifecycle_manager_navigation/manage_nodes STARTUP)'),
         DeclareLaunchArgument(
             'use_composition', default_value='true',
             description='Run the Nav2 servers as components of one container '
@@ -136,11 +149,11 @@ def generate_launch_description():
          [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
     ]
 
-    def server_group(nodes, manager_name, condition=None):
+    def server_group(nodes, manager_name, condition=None, start=autostart):
         """The servers plus their lifecycle_manager, composed or standalone."""
         manager_params = {
             'use_sim_time': use_sim_time,
-            'autostart': autostart,
+            'autostart': start,
             'bond_timeout': bond_timeout,
             'node_names': [name for _, _, _, name, _, _ in nodes],
         }
@@ -197,6 +210,7 @@ def generate_launch_description():
     localization = server_group(
         localization_nodes, 'lifecycle_manager_localization',
         condition=UnlessCondition(slam))
-    navigation = server_group(navigation_nodes, 'lifecycle_manager_navigation')
+    navigation = server_group(navigation_nodes, 'lifecycle_manager_navigation',
+                              start=navigation_autostart)
 
     return LaunchDescription(declare_args + [container, localization, navigation])
