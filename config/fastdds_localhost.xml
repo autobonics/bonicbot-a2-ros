@@ -33,6 +33,15 @@
     <transport_descriptor>
       <transport_id>shm</transport_id>
       <type>SHM</type>
+      <!-- 4 MB, not Fast DDS's 512 KB default. A message bigger than the
+           segment cannot go through shared memory and falls back to UDP in
+           many fragments, which drop under load. Measured on the S1
+           (2026-10-25, live stack at load 4.8, 10 Hz): a 0.9 MB camera image
+           arrived at 8.8 Hz (3.4 Hz for the real docking camera, which made
+           AprilTag detection fail), a 1.6 MB point cloud at 6.4 Hz; with
+           4 MB both at 9.8 Hz. Costs at most 4 MB of /dev/shm per ROS
+           process. -->
+      <segment_size>4194304</segment_size>
     </transport_descriptor>
   </transport_descriptors>
   <participant profile_name="localhost_only" is_default_profile="true">

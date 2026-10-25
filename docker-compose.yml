@@ -17,6 +17,11 @@ services:
     restart: always
     privileged: true
     network_mode: host
+    # Host IPC namespace, as in bonic-host's fleet compose: ROS's Fast DDS
+    # shared-memory transport (config/fastdds_localhost.xml, 4 MB segments)
+    # needs the host /dev/shm, shared across these containers. Without it
+    # each gets a private 64 MB /dev/shm and traffic falls back to UDP.
+    ipc: host
     devices:
       - /dev/esp        # ESP32-S3 USB CDC — wheels, servos, IMU, battery, Wi-Fi relay
       - /dev/lidar      # RPLIDAR C1M1
@@ -41,6 +46,11 @@ services:
     container_name: bonicbot_nav
     restart: always
     network_mode: host
+    # Host IPC namespace, as in bonic-host's fleet compose: ROS's Fast DDS
+    # shared-memory transport (config/fastdds_localhost.xml, 4 MB segments)
+    # needs the host /dev/shm, shared across these containers. Without it
+    # each gets a private 64 MB /dev/shm and traffic falls back to UDP.
+    ipc: host
     depends_on:
       bonicbot_ros:
         condition: service_started
@@ -57,6 +67,11 @@ services:
     container_name: robot_app
     restart: always
     network_mode: host
+    # Host IPC namespace, as in bonic-host's fleet compose: ROS's Fast DDS
+    # shared-memory transport (config/fastdds_localhost.xml, 4 MB segments)
+    # needs the host /dev/shm, shared across these containers. Without it
+    # each gets a private 64 MB /dev/shm and traffic falls back to UDP.
+    ipc: host
     mem_limit: 384m
     depends_on:
       bonicbot_ros:

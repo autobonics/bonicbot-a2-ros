@@ -46,6 +46,7 @@ does not keep robot_app's current interface working. It breaks in two places unt
 | Nav2 `*_rclcpp_node` sections | removed | Those helper nodes no longer exist |
 | Gazebo | `IGN_GAZEBO_RESOURCE_PATH` dropped | Harmonic reads `GZ_SIM_RESOURCE_PATH` only. Worlds and sensors already used Harmonic names |
 | Discovery | `ROS_LOCALHOST_ONLY=1` → `config/fastdds_localhost.xml` (UDP pinned to 127.0.0.1 + shared memory, as Humble's setting built it) loaded through `FASTRTPS_DEFAULT_PROFILES_FILE`, with `ROS_AUTOMATIC_DISCOVERY_RANGE=SYSTEM_DEFAULT`, in the session scripts and the image | Jazzy's `LOCALHOST` range does not pin the transport (a Wi-Fi change strands running nodes) and discovers more slowly in a busy graph. See "ROS traffic pinned to 127.0.0.1" |
+| DDS shared memory | `<segment_size>` 4 MB in `config/fastdds_localhost.xml` (Fast DDS default 512 KB); `ipc: host` on every service in `docker-compose.yml` | A message bigger than the segment falls back to UDP fragments that drop under load: on the S1 the docking camera's raw frames reached the AprilTag detector at 3.4 Hz instead of 10 and detection failed. With 4 MB, 0.9 MB and 1.6 MB messages arrive at 9.8 of 10 Hz. Containers need the host's /dev/shm to share it |
 | `stop_session.sh` | Also sweeps `camera_ros/camera_node` and `component_container` | Both run from `/opt/ros`, so no other pattern caught them; a surviving camera node holds the sensor |
 
 The unused `bonicbot_a2_sim/config/nav2_params_sim.yaml` was deleted: nothing loads it, and navigation uses `nav2_params.yaml` in simulation too.
